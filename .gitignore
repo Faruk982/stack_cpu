@@ -1,0 +1,51 @@
+# Vivado/Xilinx generated files and directories
+.Xil/
+*.cache/
+*.gen/
+*.runs/
+*.sim/
+*.ip_user_files/
+*.hw/
+
+# Vivado logs, journals, reports, and temporary outputs
+*.jou
+*.log
+*.str
+*.pb
+*.wdb
+*.wcfg
+*.rpt
+*.xml
+
+# Waveform and simulator artifacts
+*.vcd
+*.vpd
+*.fsdb
+*.xsim
+*.xsim.dir/
+
+# Build/export artifacts
+*.bit
+*.bin
+*.mcs
+*.ltx
+*.dcp
+*.xsa
+*.hwh
+
+# OS/editor noise
+*.tmp
+*.swp
+*.swo
+*.bak
+Thumbs.db
+.DS_Store
+
+# Keep project and source files
+!*.xpr
+!*.xdc
+!*.v
+!*.sv
+!*.vh
+!*.vhd
+!*.vhdl

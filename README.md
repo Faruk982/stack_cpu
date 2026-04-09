@@ -91,7 +91,7 @@ stack_cpu/
 │   ├── constrs_1/new/
 │   │   └── main.xdc                       ← Basys 3 pin constraints
 │   └── sim_1/new/                         ← Testbenches
-│       ├── cpu_tb.v                       ← 5-program integration test
+│       ├── cpu_tb.v                       ← 10-program integration test
 │       └── alu_tb.v                       ← ALU unit test (18 vectors)
 ```
 
@@ -103,9 +103,9 @@ stack_cpu/
 
 Tests all 8 operations with 18 vectors including carry, negative, and overflow flag checks.
 
-### CPU Integration Test (5 Programs)
+### CPU Integration Test (10 Programs)
 
-The testbench automatically tests all five example programs:
+The testbench now covers both functional programs and safety/control-flow checks:
 
 ```
 [PASS] Countdown 10->0      — LED=0x0000
@@ -113,7 +113,12 @@ The testbench automatically tests all five example programs:
 [PASS] Bit Shift 1<<4=16    — LED=0x0010
 [PASS] CALL/RET double(5)   — LED=0x000A
 [PASS] LOAD/STORE 42+58     — LED=0x0064
-RESULTS: 5 PASSED, 0 FAILED out of 5 tests
+[PASS] JC branch demo       — LED=0x0001
+[PASS] JN branch demo       — LED=0x0001
+[PASS] POP underflow fault  — FAULT expected
+[PASS] RET underflow fault  — FAULT expected
+[PASS] CALL overflow fault  — FAULT expected
+RESULTS: 10 PASSED, 0 FAILED out of 10 tests
 ```
 
 ---

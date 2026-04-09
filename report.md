@@ -601,7 +601,7 @@ digraph memory {
 ```verilog
     module cpu_top (
         input  wire        clk,         // 100 MHz board oscillator
-        input  wire        rst,         // Active-high reset (BTN0)
+        input  wire        rst,         // Active-high reset (btnC / U18)
         input  wire [15:0] sw,          // Slide switches (IN)
         output wire [15:0] led,         // LED bar output
         output wire [6:0]  seg,         // 7-segment cathode signals

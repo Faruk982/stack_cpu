@@ -1,12 +1,17 @@
 // ============================================================================
 // CPU Testbench - Full System Integration Test (Multi-Program)
 //
-// Tests the complete stack-based CPU with 5 programs:
+// Tests the complete stack-based CPU with 10 programs:
 //   1. Countdown Loop (10 → 0)        — LED = 0x0000
 //   2. Basic Arithmetic (5 + 3 = 8)   — LED = 0x0008
 //   3. Bit Shift Demo (1 << 4 = 16)   — LED = 0x0010
 //   4. CALL/RET Demo (double 5 = 10)  — LED = 0x000A
 //   5. LOAD/STORE Demo (42+58 = 100)  — LED = 0x0064
+//   6. JC Branch Demo                  — LED = 0x0001
+//   7. JN Branch Demo                  — LED = 0x0001
+//   8. POP Underflow Fault             — FAULT expected
+//   9. RET Underflow Fault             — FAULT expected
+//  10. CALL Overflow Fault             — FAULT expected
 //
 // Pure Verilog-2001 compatible (no SystemVerilog constructs).
 // ============================================================================
@@ -210,6 +215,51 @@ module cpu_tb;
                     u_rom.rom[7] = 16'h6000;  // OUT
                     u_rom.rom[8] = 16'h7E00;  // HALT
                 end
+
+                6: begin // JC branch demo
+                    // PUSH 0; NOT => 0xFFFF
+                    // PUSH 1; ADD => 0x0000 with carry=1
+                    // JC target should branch to success path
+                    u_rom.rom[0]  = 16'h0200;  // PUSH 0
+                    u_rom.rom[1]  = 16'h2A00;  // NOT
+                    u_rom.rom[2]  = 16'h0201;  // PUSH 1
+                    u_rom.rom[3]  = 16'h2000;  // ADD
+                    u_rom.rom[4]  = 16'h4E08;  // JC 8
+                    u_rom.rom[5]  = 16'h0200;  // PUSH 0
+                    u_rom.rom[6]  = 16'h6000;  // OUT
+                    u_rom.rom[7]  = 16'h7E00;  // HALT
+                    u_rom.rom[8]  = 16'h0201;  // PUSH 1
+                    u_rom.rom[9]  = 16'h6000;  // OUT
+                    u_rom.rom[10] = 16'h7E00;  // HALT
+                end
+
+                7: begin // JN branch demo
+                    // PUSH 0; NOT => 0xFFFF with negative flag set
+                    // JN target should branch to success path
+                    u_rom.rom[0] = 16'h0200;  // PUSH 0
+                    u_rom.rom[1] = 16'h2A00;  // NOT
+                    u_rom.rom[2] = 16'h5006;  // JN 6
+                    u_rom.rom[3] = 16'h0200;  // PUSH 0
+                    u_rom.rom[4] = 16'h6000;  // OUT
+                    u_rom.rom[5] = 16'h7E00;  // HALT
+                    u_rom.rom[6] = 16'h0201;  // PUSH 1
+                    u_rom.rom[7] = 16'h6000;  // OUT
+                    u_rom.rom[8] = 16'h7E00;  // HALT
+                end
+
+                8: begin // POP underflow -> FAULT
+                    u_rom.rom[0] = 16'h0400;  // POP
+                    u_rom.rom[1] = 16'h7E00;  // HALT
+                end
+
+                9: begin // RET underflow -> FAULT
+                    u_rom.rom[0] = 16'h4800;  // RET
+                    u_rom.rom[1] = 16'h7E00;  // HALT
+                end
+
+                10: begin // CALL overflow -> FAULT when return stack is full
+                    u_rom.rom[0] = 16'h4600;  // CALL 0
+                end
             endcase
         end
     endtask
@@ -228,6 +278,33 @@ module cpu_tb;
                 cycle_count = cycle_count + 1;
             end
             #100;  // Let settling happen
+        end
+    endtask
+
+    // ========================================================================
+    // run_and_expect_fault
+    // ========================================================================
+    task run_and_expect_fault;
+        input integer       prog_id;
+        input [8*24-1:0]    prog_name;
+        begin
+            $display("");
+            $display("========== Testing: %0s ==========", prog_name);
+
+            load_program(prog_id);
+            rst = 1;
+            #200;
+            rst = 0;
+
+            wait_for_completion;
+
+            if (fault) begin
+                $display(" [PASS] %0s -- FAULT observed as expected", prog_name);
+                test_pass = test_pass + 1;
+            end else begin
+                $display(" [FAIL] %0s -- expected FAULT but got HALT/timeout", prog_name);
+                test_fail = test_fail + 1;
+            end
         end
     endtask
 
@@ -287,6 +364,11 @@ module cpu_tb;
         run_and_check(3, 16'h0010, "Bit Shift 1<<4=16   ");
         run_and_check(4, 16'h000A, "CALL/RET double(5)  ");
         run_and_check(5, 16'h0064, "LOAD/STORE 42+58    ");
+        run_and_check(6, 16'h0001, "JC branch demo      ");
+        run_and_check(7, 16'h0001, "JN branch demo      ");
+        run_and_expect_fault(8,  "POP underflow fault ");
+        run_and_expect_fault(9,  "RET underflow fault ");
+        run_and_expect_fault(10, "CALL overflow fault ");
 
         $display("");
         $display("==========================================================");

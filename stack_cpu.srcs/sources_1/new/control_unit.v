@@ -106,6 +106,7 @@ module control_unit (
     localparam S_FAULT   = 3'd5;
 
     reg [2:0] state;
+    reg [2:0] next_state;
 
     // Registered flags — updated after every relevant instruction
     reg z_flag;   // Zero:     updated by all TOS-modifying instructions
@@ -131,261 +132,291 @@ module control_unit (
     end
 
     // ========================================================================
-    // Sequential FSM
+    // Next-state decode
+    // ========================================================================
+    always @(*) begin
+        next_state = state;
+
+        case (state)
+            S_RESET: begin
+                next_state = S_FETCH;
+            end
+
+            S_FETCH: begin
+                next_state = S_DECODE;
+            end
+
+            S_DECODE: begin
+                next_state = S_EXECUTE;
+            end
+
+            S_EXECUTE: begin
+                case (opcode)
+                    OP_PUSH:  next_state = stack_full    ? S_FAULT : S_FETCH;
+                    OP_POP:   next_state = stack_empty   ? S_FAULT : S_FETCH;
+                    OP_DUP:   next_state = stack_full    ? S_FAULT : S_FETCH;
+                    OP_SWAP:  next_state = !stack_has_two ? S_FAULT : S_FETCH;
+
+                    OP_ADD,
+                    OP_SUB,
+                    OP_AND,
+                    OP_OR,
+                    OP_XOR:   next_state = !stack_has_two ? S_FAULT : S_FETCH;
+
+                    OP_NOT,
+                    OP_SHL,
+                    OP_SHR:   next_state = stack_empty   ? S_FAULT : S_FETCH;
+
+                    OP_CALL:  next_state = rs_full       ? S_FAULT : S_FETCH;
+                    OP_RET:   next_state = rs_empty      ? S_FAULT : S_FETCH;
+
+                    OP_LOAD:  next_state = stack_full    ? S_FAULT : S_FETCH;
+                    OP_STORE: next_state = stack_empty   ? S_FAULT : S_FETCH;
+
+                    OP_HALT:  next_state = S_HALT;
+
+                    default:  next_state = S_FETCH;
+                endcase
+            end
+
+            S_HALT: begin
+                next_state = S_HALT;
+            end
+
+            S_FAULT: begin
+                next_state = S_FAULT;
+            end
+
+            default: begin
+                next_state = S_RESET;
+            end
+        endcase
+    end
+
+    // ========================================================================
+    // Combinational control output decode
+    // ========================================================================
+    always @(*) begin
+        ir_load      = 1'b0;
+        pc_inc       = 1'b0;
+        pc_load      = 1'b0;
+        push_en      = 1'b0;
+        pop_en       = 1'b0;
+        dup_en       = 1'b0;
+        swap_en      = 1'b0;
+        alu_wr_en    = 1'b0;
+        alu_unary_en = 1'b0;
+        in_en        = 1'b0;
+        load_en      = 1'b0;
+        out_en       = 1'b0;
+        call_en      = 1'b0;
+        ret_en       = 1'b0;
+        ram_wr_en    = 1'b0;
+        halted       = 1'b0;
+        fault        = 1'b0;
+
+        case (state)
+            S_FETCH: begin
+                pc_inc = 1'b1;
+            end
+
+            S_DECODE: begin
+                ir_load = 1'b1;
+            end
+
+            S_EXECUTE: begin
+                case (opcode)
+                    OP_PUSH: begin
+                        if (!stack_full)
+                            push_en = 1'b1;
+                    end
+
+                    OP_POP: begin
+                        if (!stack_empty)
+                            pop_en = 1'b1;
+                    end
+
+                    OP_DUP: begin
+                        if (!stack_full)
+                            dup_en = 1'b1;
+                    end
+
+                    OP_SWAP: begin
+                        if (stack_has_two)
+                            swap_en = 1'b1;
+                    end
+
+                    OP_ADD,
+                    OP_SUB,
+                    OP_AND,
+                    OP_OR,
+                    OP_XOR: begin
+                        if (stack_has_two)
+                            alu_wr_en = 1'b1;
+                    end
+
+                    OP_NOT,
+                    OP_SHL,
+                    OP_SHR: begin
+                        if (!stack_empty)
+                            alu_unary_en = 1'b1;
+                    end
+
+                    OP_JMP: begin
+                        pc_load = 1'b1;
+                    end
+
+                    OP_JZ: begin
+                        if (z_flag)
+                            pc_load = 1'b1;
+                    end
+
+                    OP_JNZ: begin
+                        if (!z_flag)
+                            pc_load = 1'b1;
+                    end
+
+                    OP_JC: begin
+                        if (c_flag)
+                            pc_load = 1'b1;
+                    end
+
+                    OP_JN: begin
+                        if (n_flag)
+                            pc_load = 1'b1;
+                    end
+
+                    OP_CALL: begin
+                        if (!rs_full) begin
+                            call_en = 1'b1;
+                            pc_load = 1'b1;
+                        end
+                    end
+
+                    OP_RET: begin
+                        if (!rs_empty) begin
+                            ret_en  = 1'b1;
+                            pc_load = 1'b1;
+                        end
+                    end
+
+                    OP_LOAD: begin
+                        if (!stack_full)
+                            load_en = 1'b1;
+                    end
+
+                    OP_STORE: begin
+                        if (!stack_empty) begin
+                            pop_en    = 1'b1;
+                            ram_wr_en = 1'b1;
+                        end
+                    end
+
+                    OP_OUT: begin
+                        out_en = 1'b1;
+                    end
+
+                    OP_IN: begin
+                        if (!stack_full)
+                            in_en = 1'b1;
+                    end
+
+                    default: begin
+                    end
+                endcase
+            end
+
+            S_HALT: begin
+                halted = 1'b1;
+            end
+
+            S_FAULT: begin
+                fault = 1'b1;
+            end
+
+            default: begin
+            end
+        endcase
+    end
+
+    // ========================================================================
+    // Sequential state and flag registers
     // ========================================================================
     always @(posedge clk) begin
         if (rst) begin
-            state        <= S_RESET;
-            z_flag       <= 1'b0;
-            c_flag       <= 1'b0;
-            n_flag       <= 1'b0;
-            v_flag       <= 1'b0;
-            ir_load      <= 1'b0;
-            pc_inc       <= 1'b0;
-            pc_load      <= 1'b0;
-            push_en      <= 1'b0;
-            pop_en       <= 1'b0;
-            dup_en       <= 1'b0;
-            swap_en      <= 1'b0;
-            alu_wr_en    <= 1'b0;
-            alu_unary_en <= 1'b0;
-            in_en        <= 1'b0;
-            load_en      <= 1'b0;
-            out_en       <= 1'b0;
-            call_en      <= 1'b0;
-            ret_en       <= 1'b0;
-            ram_wr_en    <= 1'b0;
-            halted       <= 1'b0;
-            fault        <= 1'b0;
+            state  <= S_RESET;
+            z_flag <= 1'b0;
+            c_flag <= 1'b0;
+            n_flag <= 1'b0;
+            v_flag <= 1'b0;
         end else if (clk_en) begin
-            // Default: de-assert all control signals each cycle
-            ir_load      <= 1'b0;
-            pc_inc       <= 1'b0;
-            pc_load      <= 1'b0;
-            push_en      <= 1'b0;
-            pop_en       <= 1'b0;
-            dup_en       <= 1'b0;
-            swap_en      <= 1'b0;
-            alu_wr_en    <= 1'b0;
-            alu_unary_en <= 1'b0;
-            in_en        <= 1'b0;
-            load_en      <= 1'b0;
-            out_en       <= 1'b0;
-            call_en      <= 1'b0;
-            ret_en       <= 1'b0;
-            ram_wr_en    <= 1'b0;
-            halted       <= 1'b0;
-            fault        <= 1'b0;
+            state <= next_state;
 
-            case (state)
-                // ------------------------------------------------------------
-                S_RESET: begin
-                    state <= S_FETCH;
-                end
+            if (state == S_EXECUTE) begin
+                case (opcode)
+                    OP_PUSH: begin
+                        if (!stack_full)
+                            z_flag <= (immediate == 9'd0);
+                    end
 
-                // ------------------------------------------------------------
-                S_FETCH: begin
-                    pc_inc <= 1'b1;
-                    state  <= S_DECODE;
-                end
+                    OP_POP: begin
+                        if (!stack_empty)
+                            z_flag <= (nos == 16'd0);
+                    end
 
-                // ------------------------------------------------------------
-                S_DECODE: begin
-                    ir_load <= 1'b1;
-                    state   <= S_EXECUTE;
-                end
+                    OP_DUP: begin
+                        if (!stack_full)
+                            z_flag <= (tos == 16'd0);
+                    end
 
-                // ------------------------------------------------------------
-                S_EXECUTE: begin
-                    case (opcode)
+                    OP_SWAP: begin
+                        if (stack_has_two)
+                            z_flag <= (nos == 16'd0);
+                    end
 
-                        // -- Stack operations --
-                        OP_PUSH: begin
-                            if (stack_full) begin
-                                state <= S_FAULT;
-                            end else begin
-                                push_en <= 1'b1;
-                                z_flag  <= (immediate == 9'd0);
-                                state   <= S_FETCH;
-                            end
+                    OP_ADD,
+                    OP_SUB,
+                    OP_AND,
+                    OP_OR,
+                    OP_XOR: begin
+                        if (stack_has_two) begin
+                            z_flag <= zero_flag;
+                            c_flag <= carry_flag;
+                            n_flag <= neg_flag;
+                            v_flag <= overflow_flag;
                         end
+                    end
 
-                        OP_POP: begin
-                            if (stack_empty) begin
-                                state <= S_FAULT;
-                            end else begin
-                                pop_en <= 1'b1;
-                                z_flag <= (nos == 16'd0);
-                                state  <= S_FETCH;
-                            end
+                    OP_NOT,
+                    OP_SHL,
+                    OP_SHR: begin
+                        if (!stack_empty) begin
+                            z_flag <= zero_flag;
+                            c_flag <= carry_flag;
+                            n_flag <= neg_flag;
+                            v_flag <= overflow_flag;
                         end
+                    end
 
-                        OP_DUP: begin
-                            if (stack_full) begin
-                                state <= S_FAULT;
-                            end else begin
-                                dup_en <= 1'b1;
-                                z_flag <= (tos == 16'd0);
-                                state  <= S_FETCH;
-                            end
-                        end
+                    OP_LOAD: begin
+                        if (!stack_full)
+                            z_flag <= (ram_data == 16'd0);
+                    end
 
-                        OP_SWAP: begin
-                            if (!stack_has_two) begin
-                                state <= S_FAULT;
-                            end else begin
-                                swap_en <= 1'b1;
-                                z_flag  <= (nos == 16'd0);
-                                state   <= S_FETCH;
-                            end
-                        end
+                    OP_STORE: begin
+                        if (!stack_empty)
+                            z_flag <= (nos == 16'd0);
+                    end
 
-                        // -- Binary ALU operations --
-                        OP_ADD, OP_SUB, OP_AND, OP_OR, OP_XOR: begin
-                            if (!stack_has_two) begin
-                                state <= S_FAULT;
-                            end else begin
-                                alu_wr_en <= 1'b1;
-                                z_flag    <= zero_flag;
-                                c_flag    <= carry_flag;
-                                n_flag    <= neg_flag;
-                                v_flag    <= overflow_flag;
-                                state     <= S_FETCH;
-                            end
-                        end
+                    OP_IN: begin
+                        if (!stack_full)
+                            z_flag <= (in_value == 16'd0);
+                    end
 
-                        // -- Unary ALU operations --
-                        OP_NOT, OP_SHL, OP_SHR: begin
-                            if (stack_empty) begin
-                                state <= S_FAULT;
-                            end else begin
-                                alu_unary_en <= 1'b1;
-                                z_flag       <= zero_flag;
-                                c_flag       <= carry_flag;
-                                n_flag       <= neg_flag;
-                                v_flag       <= overflow_flag;
-                                state        <= S_FETCH;
-                            end
-                        end
-
-                        // -- Control flow (original) --
-                        OP_JMP: begin
-                            pc_load <= 1'b1;
-                            state   <= S_FETCH;
-                        end
-
-                        OP_JZ: begin
-                            if (z_flag)
-                                pc_load <= 1'b1;
-                            state <= S_FETCH;
-                        end
-
-                        OP_JNZ: begin
-                            if (!z_flag)
-                                pc_load <= 1'b1;
-                            state <= S_FETCH;
-                        end
-
-                        // -- New branches --
-                        OP_JC: begin
-                            if (c_flag)
-                                pc_load <= 1'b1;
-                            state <= S_FETCH;
-                        end
-
-                        OP_JN: begin
-                            if (n_flag)
-                                pc_load <= 1'b1;
-                            state <= S_FETCH;
-                        end
-
-                        // -- CALL / RET --
-                        OP_CALL: begin
-                            if (rs_full) begin
-                                state <= S_FAULT;
-                            end else begin
-                                call_en <= 1'b1;
-                                pc_load <= 1'b1;
-                                state   <= S_FETCH;
-                            end
-                        end
-
-                        OP_RET: begin
-                            if (rs_empty) begin
-                                state <= S_FAULT;
-                            end else begin
-                                ret_en  <= 1'b1;
-                                pc_load <= 1'b1;
-                                state   <= S_FETCH;
-                            end
-                        end
-
-                        // -- LOAD / STORE --
-                        OP_LOAD: begin
-                            if (stack_full) begin
-                                state <= S_FAULT;
-                            end else begin
-                                load_en <= 1'b1;
-                                z_flag  <= (ram_data == 16'd0);
-                                state   <= S_FETCH;
-                            end
-                        end
-
-                        OP_STORE: begin
-                            if (stack_empty) begin
-                                state <= S_FAULT;
-                            end else begin
-                                pop_en    <= 1'b1;
-                                ram_wr_en <= 1'b1;
-                                z_flag    <= (nos == 16'd0);
-                                state     <= S_FETCH;
-                            end
-                        end
-
-                        // -- I/O --
-                        OP_OUT: begin
-                            out_en <= 1'b1;
-                            state  <= S_FETCH;
-                        end
-
-                        OP_IN: begin
-                            if (stack_full) begin
-                                state <= S_FAULT;
-                            end else begin
-                                in_en  <= 1'b1;
-                                z_flag <= (in_value == 16'd0);
-                                state  <= S_FETCH;
-                            end
-                        end
-
-                        // -- HALT --
-                        OP_HALT: begin
-                            halted <= 1'b1;
-                            state  <= S_HALT;
-                        end
-
-                        default: begin
-                            state <= S_FETCH;
-                        end
-                    endcase
-                end
-
-                // ------------------------------------------------------------
-                S_HALT: begin
-                    halted <= 1'b1;
-                    state  <= S_HALT;
-                end
-
-                // ------------------------------------------------------------
-                S_FAULT: begin
-                    fault <= 1'b1;
-                    state <= S_FAULT;
-                end
-
-                default: begin
-                    state <= S_RESET;
-                end
-            endcase
+                    default: begin
+                    end
+                endcase
+            end
         end
     end
 

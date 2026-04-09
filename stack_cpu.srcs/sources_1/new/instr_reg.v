@@ -1,7 +1,7 @@
 // ============================================================================
 // Instruction Register (IR) — 16-bit
 // Latches the instruction word from ROM on the rising clock edge when
-// ir_load is asserted (during S_FETCH).
+// ir_load is asserted (during S_DECODE).
 //
 // IR[15:9] = opcode  (7 bits)  → fed to Control Unit
 // IR[8:0]  = immediate (9 bits) → fed to Stack (PUSH) / PC (JMP)

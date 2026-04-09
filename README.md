@@ -1,172 +1,165 @@
-# 16-bit Stack-Based CPU — Artix-7 FPGA Implementation
+# 16-bit Stack CPU for Artix-7 (Basys 3)
 
-A custom 16-bit soft-core processor built from scratch in Verilog HDL, implementing a **Stack Machine (zero-operand) architecture** with subroutine support, data memory, and extended condition flags. Designed for the **Basys 3** development board with the Xilinx Artix-7 FPGA (`xc7a35ticpg236-1L`).
+A custom 16-bit stack-based soft CPU written in Verilog HDL and targeted to Basys 3 (`xc7a35ticpg236-1L`).
 
----
+Project highlights:
 
-## Overview
+- 31-instruction ISA (CMP and new branches JE/JG/JNG/JS added)
+- Gate-level arithmetic foundation (half/full-adder based 16-bit adder-subtractor path)
+- Latched flag architecture preserved for deterministic branch behavior
+- 15-program integration testbench coverage
 
-This project implements a complete 16-bit stack-based CPU demonstrating core digital system design concepts:
+## Architecture Summary
 
-- **Register Transfer Logic (RTL)** — data paths between registers, ALU, and memory
-- **Finite State Machine (FSM) Control** — 6-state Moore machine (RESET, FETCH, DECODE, EXECUTE, HALT, FAULT)
-- **ALU Design** — combinational 16-bit ALU with 8 operations and 4 condition flags (Z, C, N, V)
-- **26-Instruction ISA** — stack ops, arithmetic/logic, control flow (JMP/JZ/JNZ/JC/JN), subroutines (CALL/RET), memory (LOAD/STORE), I/O
-- **Harvard Architecture** — separate 512-word instruction ROM and parameterised data stack
-- **Subroutine Support** — dedicated return-address stack (16 physical entries, 15 usable with empty-sentinel convention)
-- **Data Memory** — 256×16-bit RAM for general-purpose storage
-- **Stack Safety** — pre-emptive overflow/underflow detection with fault state
+- CPU style: stack machine (zero-operand ISA)
+- Clocking: single 100 MHz domain with clock-enable pulse for CPU stepping
+- FSM: 6 states (`RESET`, `FETCH`, `DECODE`, `EXECUTE`, `HALT`, `FAULT`)
+- Widths:
+  - instruction: 16 bits (`opcode[15:9]`, `immediate[8:0]`)
+  - data path: 16 bits
+  - PC: 9 bits (512 ROM locations)
+- Memories:
+  - instruction ROM: 512 x 16
+  - data RAM: 256 x 16
+  - data stack: parameterized depth (default 16 physical, SP=0 empty)
+  - return stack: parameterized depth (default 16 physical, RSP=0 empty)
 
-The CPU executes at ~2 Hz for real-time observation via 16 LEDs and a 4-digit 7-segment hex display.
+## ISA
 
----
+### Stack
 
-## Instruction Set Architecture (ISA)
+| Mnemonic | Opcode | Description |
+| --- | --- | --- |
+| `PUSH imm` | `7'h01` | Push zero-extended immediate |
+| `POP` | `7'h02` | Pop TOS |
+| `DUP` | `7'h03` | Duplicate TOS |
+| `SWAP` | `7'h04` | Swap TOS and NOS |
 
-16-bit instruction format: `[15:9] opcode (7b) | [8:0] immediate (9b)`
+### ALU / Compare
 
-| Mnemonic               | Opcode | Operation                        | Description                    |
-| ---------------------- | ------ | -------------------------------- | ------------------------------ |
-| **Stack Operations**   |
-| `PUSH imm`             | `01`   | `SP++; stack[SP] ← imm`          | Push 9-bit zero-extended value |
-| `POP`                  | `02`   | `SP--`                           | Discard TOS                    |
-| `DUP`                  | `03`   | `SP++; stack[SP] ← TOS`          | Duplicate TOS                  |
-| `SWAP`                 | `04`   | `TOS ↔ NOS`                      | Swap top two elements          |
-| **Arithmetic / Logic** |
-| `ADD`                  | `10`   | `NOS + TOS → stack; SP--; ZCNV`  | Addition                       |
-| `SUB`                  | `11`   | `NOS - TOS → stack; SP--; ZCNV`  | Subtraction                    |
-| `AND`                  | `12`   | `NOS & TOS → stack; SP--; ZCNV`  | Bitwise AND                    |
-| `OR`                   | `13`   | `NOS \| TOS → stack; SP--; ZCNV` | Bitwise OR                     |
-| `XOR`                  | `14`   | `NOS ^ TOS → stack; SP--; ZCNV`  | Bitwise XOR                    |
-| `NOT`                  | `15`   | `~TOS → stack[SP]; ZCNV`         | Bitwise complement             |
-| `SHL`                  | `16`   | `TOS << 1; C←MSB; ZCNV`          | Left shift by 1                |
-| `SHR`                  | `17`   | `TOS >> 1; C←LSB; ZCNV`          | Right shift by 1               |
-| **Control Flow**       |
-| `JMP addr`             | `20`   | `PC ← addr`                      | Unconditional jump             |
-| `JZ addr`              | `21`   | `if (Z) PC ← addr`               | Jump if zero                   |
-| `JNZ addr`             | `22`   | `if (!Z) PC ← addr`              | Jump if not zero               |
-| `CALL addr`            | `23`   | `ret_push(PC); PC ← addr`        | Call subroutine                |
-| `RET`                  | `24`   | `PC ← ret_pop()`                 | Return from subroutine         |
-| `JC addr`              | `27`   | `if (C) PC ← addr`               | Jump if carry                  |
-| `JN addr`              | `28`   | `if (N) PC ← addr`               | Jump if negative               |
-| `HALT`                 | `3F`   | Freeze PC                        | Halt execution                 |
-| **Memory**             |
-| `LOAD addr`            | `25`   | `SP++; stack[SP] ← RAM[addr]`    | Load from data RAM             |
-| `STORE addr`           | `26`   | `RAM[addr] ← TOS; SP--`          | Store TOS to data RAM          |
-| **I/O**                |
-| `OUT`                  | `30`   | `OUT_REG ← TOS`                  | Drive LEDs/7-seg               |
-| `IN`                   | `31`   | `SP++; stack[SP] ← switches`     | Push switch state              |
+| Mnemonic | Opcode | Description |
+| --- | --- | --- |
+| `ADD` | `7'h10` | `NOS + TOS`, write back, pop one |
+| `SUB` | `7'h11` | `NOS - TOS`, write back, pop one |
+| `AND` | `7'h12` | Bitwise AND |
+| `OR` | `7'h13` | Bitwise OR |
+| `XOR` | `7'h14` | Bitwise XOR |
+| `NOT` | `7'h15` | Unary bitwise NOT on TOS |
+| `SHL` | `7'h16` | Shift-left TOS by 1 |
+| `SHR` | `7'h17` | Logical shift-right TOS by 1 |
+| `CMP` | `7'h18` | Compare `NOS - TOS`, update flags only, stack unchanged |
 
----
+### Control Flow
+
+| Mnemonic | Opcode | Description |
+| --- | --- | --- |
+| `JMP addr` | `7'h20` | Unconditional jump |
+| `JZ addr` | `7'h21` | Jump if `Z=1` |
+| `JNZ addr` | `7'h22` | Jump if `Z=0` |
+| `CALL addr` | `7'h23` | Push return address and jump |
+| `RET` | `7'h24` | Pop return address and jump |
+| `JC addr` | `7'h27` | Jump if `C=1` |
+| `JN addr` | `7'h28` | Jump if `N=1` |
+| `JE addr` | `7'h29` | Jump if equal (`Z=1`) |
+| `JG addr` | `7'h2A` | Jump if signed greater (`!Z && N==V`) |
+| `JNG addr` | `7'h2B` | Jump if signed not greater (`Z=1` or `N!=V`) |
+| `JS addr` | `7'h2C` | Jump if sign (`N=1`) |
+| `HALT` | `7'h3F` | Enter halt state |
+
+### Memory and I/O
+
+| Mnemonic | Opcode | Description |
+| --- | --- | --- |
+| `LOAD addr` | `7'h25` | Push `RAM[addr]` |
+| `STORE addr` | `7'h26` | Store TOS to `RAM[addr]` then pop |
+| `OUT` | `7'h30` | Latch TOS to output register |
+| `IN` | `7'h31` | Push switch value |
+
+## Flags
+
+Flag latches are in `control_unit.v` and are updated in `S_EXECUTE`.
+
+- `Z`: result zero
+- `C`: carry/borrow (and shift-out for SHL/SHR)
+- `N`: result sign bit (`result[15]`)
+- `V`: signed overflow
+
+Branches use the **latched flags**, not transient combinational values.
+
+## ALU Implementation Notes
+
+`alu.v` is combinational, but now delegates operation logic to dedicated modules:
+
+- arithmetic path: `half_adder.v`, `full_adder.v`, `ripple_adder_16.v`, `adder_subtractor_16.v`
+- bitwise path: `bitwise_and_16.v`, `bitwise_or_16.v`, `bitwise_xor_16.v`, `bitwise_not_16.v`
+- shift path: `shl1_16.v`, `shr1_16.v`
+- compare helper: `comparator_16.v` (library/helper module)
 
 ## Module Hierarchy
 
-```
-cpu_top.v                       ← Top-level wrapper
-├── clk_div.v                   ← Clock-enable generator (~2 Hz)
-├── pc.v                        ← 9-bit Program Counter
-├── instr_rom.v                 ← 512×16-bit Instruction ROM
-├── instr_reg.v                 ← 16-bit Instruction Register
-├── control_unit.v              ← 6-state FSM (26 opcodes, 4 flags)
-├── alu.v                       ← 16-bit ALU with Z,C,N,V flags
-├── stack.v                     ← Parameterised Data Stack (default 16×16 physical, 15 usable)
-├── return_stack.v              ← Return-Address Stack (16×9 physical, 15 usable)
-├── data_ram.v                  ← 256×16-bit Data RAM
-├── output_reg.v                ← 16-bit Output Register → LEDs
-└── seg_display_controller.v    ← 4-digit 7-segment multiplexer
-    └── hex_to_7seg.v           ← Hex-to-7seg decoder
-```
-
----
-
-## Project Structure
-
-```
-stack_cpu/
-├── stack_cpu.xpr                          ← Vivado project file
-├── report.md                              ← Design specification
-├── README.md                              ← This file
-├── stack_cpu.srcs/
-│   ├── sources_1/new/                     ← RTL source files (13 modules)
-│   ├── constrs_1/new/
-│   │   └── main.xdc                       ← Basys 3 pin constraints
-│   └── sim_1/new/                         ← Testbenches
-│       ├── cpu_tb.v                       ← 10-program integration test
-│       └── alu_tb.v                       ← ALU unit test (18 vectors)
+```text
+cpu_top.v
+├── clk_div.v
+├── pc.v
+├── instr_rom.v
+├── instr_reg.v
+├── control_unit.v
+├── alu.v
+│   ├── adder_subtractor_16.v
+│   │   └── ripple_adder_16.v
+│   │       └── full_adder.v
+│   │           └── half_adder.v
+│   ├── bitwise_and_16.v
+│   ├── bitwise_or_16.v
+│   ├── bitwise_xor_16.v
+│   ├── bitwise_not_16.v
+│   ├── shl1_16.v
+│   └── shr1_16.v
+├── stack.v
+├── return_stack.v
+├── data_ram.v
+├── output_reg.v
+└── seg_display_controller.v
+    └── hex_to_7seg.v
 ```
 
----
+RTL count in `stack_cpu.srcs/sources_1/new`: 24 Verilog modules.
 
-## Running Simulations
+## Default ROM Program Behavior
 
-### ALU Unit Test
+In `instr_rom.v`, the active default program is a recurring subroutine-based countdown loop:
 
-Tests all 8 operations with 18 vectors including carry, negative, and overflow flag checks.
+- counts `10 -> 0`
+- repeats forever (`CALL` + `JMP` main loop)
+- does not HALT in normal operation
 
-### CPU Integration Test (10 Programs)
+## Simulation
 
-The testbench now covers both functional programs and safety/control-flow checks:
+### ALU Unit Test (`alu_tb.v`)
 
-```
-[PASS] Countdown 10->0      — LED=0x0000
-[PASS] Arithmetic 5+3=8     — LED=0x0008
-[PASS] Bit Shift 1<<4=16    — LED=0x0010
-[PASS] CALL/RET double(5)   — LED=0x000A
-[PASS] LOAD/STORE 42+58     — LED=0x0064
-[PASS] JC branch demo       — LED=0x0001
-[PASS] JN branch demo       — LED=0x0001
-[PASS] POP underflow fault  — FAULT expected
-[PASS] RET underflow fault  — FAULT expected
-[PASS] CALL overflow fault  — FAULT expected
-RESULTS: 10 PASSED, 0 FAILED out of 10 tests
-```
+- Verifies ADD/SUB/AND/OR/XOR/NOT/SHL/SHR/CMP
+- Checks `result`, `Z`, `C`, `N`, `V`
 
----
+### CPU Integration Test (`cpu_tb.v`)
 
-## Example Programs
+15 test programs are executed, including:
 
-| #   | Name       | Description                   | Expected LED |
-| --- | ---------- | ----------------------------- | :----------: |
-| 1   | Countdown  | 10→0 loop with display        |   `0x0000`   |
-| 2   | Arithmetic | 5 + 3 = 8                     |   `0x0008`   |
-| 3   | Bit Shift  | 1 << 4 = 16                   |   `0x0010`   |
-| 4   | CALL/RET   | Subroutine doubles 5→10       |   `0x000A`   |
-| 5   | LOAD/STORE | Store 42,58; load and add→100 |   `0x0064`   |
+- arithmetic, shift, call/ret, load/store
+- JC/JN branch checks
+- CMP + JE/JG/JNG/JS branch checks
+- underflow/overflow FAULT checks
 
----
+Expected result target: all tests pass.
 
-## Design Parameters
+## Hardware I/O Mapping (Basys 3)
 
-| Parameter         | Value                                          |
-| ----------------- | ---------------------------------------------- |
-| Clock frequency   | 100 MHz                                        |
-| CPU clock         | ~2 Hz (configurable)                           |
-| Instruction width | 16 bits (7b opcode + 9b immediate)             |
-| Data width        | 16 bits                                        |
-| ROM size          | 512 words (9-bit PC)                           |
-| Stack depth       | 16 physical entries (15 usable), parameterised |
-| Return stack      | 16 physical entries × 9-bit (15 usable)        |
-| Data RAM          | 256 × 16-bit                                   |
-| ISA size          | 26 instructions                                |
-| FSM states        | 6 (3-bit encoding)                             |
-| ALU flags         | Z, C, N, V                                     |
+- `clk`: W5 (100 MHz)
+- `rst`: U18 (btnC)
+- `sw[15:0]`: slide switches
+- `led[15:0]`: LEDs
+- `seg[6:0]`, `an[3:0]`: 7-segment display
 
----
-
-## Hardware I/O Mapping
-
-| Board Element      | Port        | Function                 |
-| ------------------ | ----------- | ------------------------ |
-| **W5**             | `clk`       | 100 MHz oscillator       |
-| **U18** (btnC)     | `rst`       | Active-high reset        |
-| **V17–R2**         | `sw[15:0]`  | Input for IN instruction |
-| **U16–L1**         | `led[15:0]` | Output register display  |
-| **W7–U7**          | `seg[6:0]`  | 7-segment cathodes       |
-| **U2, U4, V4, W4** | `an[3:0]`   | 7-segment anodes         |
-
----
-
-## Setup & Build
+## Build and Program (Vivado)
 
 1. Open `stack_cpu.xpr` in Vivado (or create new project with all `.v` files)
 2. Set target device to **`xc7a35ticpg236-1L`**

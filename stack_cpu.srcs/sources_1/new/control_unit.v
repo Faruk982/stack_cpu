@@ -2,7 +2,7 @@
 // Control Unit — Hardwired 6-State FSM
 //
 // States: S_RESET, S_FETCH, S_DECODE, S_EXECUTE, S_HALT, S_FAULT
-// ISA:    26 instructions (20 original + CALL, RET, LOAD, STORE, JC, JN)
+// ISA:    31 instructions (26 current + CMP, JE, JG, JNG, JS)
 // Flags:  Z (zero), C (carry), N (negative), V (overflow)
 // ============================================================================
 
@@ -73,6 +73,7 @@ module control_unit (
     localparam OP_NOT   = 7'h15;
     localparam OP_SHL   = 7'h16;
     localparam OP_SHR   = 7'h17;
+    localparam OP_CMP   = 7'h18;
     localparam OP_JMP   = 7'h20;
     localparam OP_JZ    = 7'h21;
     localparam OP_JNZ   = 7'h22;
@@ -82,6 +83,10 @@ module control_unit (
     localparam OP_STORE = 7'h26;
     localparam OP_JC    = 7'h27;
     localparam OP_JN    = 7'h28;
+    localparam OP_JE    = 7'h29;
+    localparam OP_JG    = 7'h2A;
+    localparam OP_JNG   = 7'h2B;
+    localparam OP_JS    = 7'h2C;
     localparam OP_OUT   = 7'h30;
     localparam OP_IN    = 7'h31;
     localparam OP_HALT  = 7'h3F;
@@ -95,6 +100,7 @@ module control_unit (
     localparam ALU_NOT = 4'd5;
     localparam ALU_SHL = 4'd6;
     localparam ALU_SHR = 4'd7;
+    localparam ALU_CMP = 4'd8;
     localparam ALU_NOP = 4'd15;
 
     // ---- FSM states ----
@@ -127,6 +133,7 @@ module control_unit (
             OP_NOT: alu_op = ALU_NOT;
             OP_SHL: alu_op = ALU_SHL;
             OP_SHR: alu_op = ALU_SHR;
+            OP_CMP: alu_op = ALU_CMP;
             default: alu_op = ALU_NOP;
         endcase
     end
@@ -166,6 +173,8 @@ module control_unit (
                     OP_NOT,
                     OP_SHL,
                     OP_SHR:   next_state = stack_empty   ? S_FAULT : S_FETCH;
+
+                    OP_CMP:   next_state = !stack_has_two ? S_FAULT : S_FETCH;
 
                     OP_CALL:  next_state = rs_full       ? S_FAULT : S_FETCH;
                     OP_RET:   next_state = rs_empty      ? S_FAULT : S_FETCH;
@@ -316,6 +325,26 @@ module control_unit (
                         out_en = 1'b1;
                     end
 
+                    OP_JE: begin
+                        if (z_flag)
+                            pc_load = 1'b1;
+                    end
+
+                    OP_JG: begin
+                        if (!z_flag && (n_flag == v_flag))
+                            pc_load = 1'b1;
+                    end
+
+                    OP_JNG: begin
+                        if (z_flag || (n_flag != v_flag))
+                            pc_load = 1'b1;
+                    end
+
+                    OP_JS: begin
+                        if (n_flag)
+                            pc_load = 1'b1;
+                    end
+
                     OP_IN: begin
                         if (!stack_full)
                             in_en = 1'b1;
@@ -401,6 +430,15 @@ module control_unit (
                     OP_LOAD: begin
                         if (!stack_full)
                             z_flag <= (ram_data == 16'd0);
+                    end
+
+                    OP_CMP: begin
+                        if (stack_has_two) begin
+                            z_flag <= zero_flag;
+                            c_flag <= carry_flag;
+                            n_flag <= neg_flag;
+                            v_flag <= overflow_flag;
+                        end
                     end
 
                     OP_STORE: begin

@@ -33,6 +33,7 @@ module alu_tb;
     localparam ALU_NOT = 4'd5;
     localparam ALU_SHL = 4'd6;
     localparam ALU_SHR = 4'd7;
+    localparam ALU_CMP = 4'd8;
 
     integer pass_count;
     integer fail_count;
@@ -133,6 +134,16 @@ module alu_tb;
 
         a = 16'h0001; b = 16'h0000; alu_op = ALU_SHR;
         check(16'h0000, 1'b1, 1'b1, 1'b0, 1'b0, "SHR(ZC) ");
+
+        // ----- CMP (same flags as SUB: b - a) -----
+        a = 16'h0005; b = 16'h0005; alu_op = ALU_CMP;
+        check(16'h0000, 1'b1, 1'b0, 1'b0, 1'b0, "CMP(EQ) ");
+
+        a = 16'h0002; b = 16'h0001; alu_op = ALU_CMP;
+        check(16'hFFFF, 1'b0, 1'b1, 1'b1, 1'b0, "CMP(N)  ");
+
+        a = 16'hFFFF; b = 16'h0002; alu_op = ALU_CMP;
+        check(16'h0003, 1'b0, 1'b1, 1'b0, 1'b0, "CMP(GT) ");
 
         // ----- Summary -----
         $display("");

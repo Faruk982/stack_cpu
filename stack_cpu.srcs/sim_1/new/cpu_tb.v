@@ -1,7 +1,7 @@
 // ============================================================================
 // CPU Testbench - Full System Integration Test (Multi-Program)
 //
-// Tests the complete stack-based CPU with 10 programs:
+// Tests the complete stack-based CPU with 15 programs:
 //   1. Countdown Loop (10 → 0)        — LED = 0x0000
 //   2. Basic Arithmetic (5 + 3 = 8)   — LED = 0x0008
 //   3. Bit Shift Demo (1 << 4 = 16)   — LED = 0x0010
@@ -12,6 +12,11 @@
 //   8. POP Underflow Fault             — FAULT expected
 //   9. RET Underflow Fault             — FAULT expected
 //  10. CALL Overflow Fault             — FAULT expected
+//  11. CMP + JE Demo                    — LED = 0x0001
+//  12. CMP + JG Demo (signed)           — LED = 0x0001
+//  13. CMP + JNG Demo (signed)          — LED = 0x0001
+//  14. CMP + JS Demo                    — LED = 0x0001
+//  15. CMP Underflow Fault              — FAULT expected
 //
 // Pure Verilog-2001 compatible (no SystemVerilog constructs).
 // ============================================================================
@@ -260,6 +265,66 @@ module cpu_tb;
                 10: begin // CALL overflow -> FAULT when return stack is full
                     u_rom.rom[0] = 16'h4600;  // CALL 0
                 end
+
+                11: begin // CMP + JE branch demo
+                    u_rom.rom[0] = 16'h0205;  // PUSH 5
+                    u_rom.rom[1] = 16'h0205;  // PUSH 5
+                    u_rom.rom[2] = 16'h3000;  // CMP
+                    u_rom.rom[3] = 16'h5207;  // JE 7
+                    u_rom.rom[4] = 16'h0200;  // PUSH 0
+                    u_rom.rom[5] = 16'h6000;  // OUT
+                    u_rom.rom[6] = 16'h7E00;  // HALT
+                    u_rom.rom[7] = 16'h0201;  // PUSH 1
+                    u_rom.rom[8] = 16'h6000;  // OUT
+                    u_rom.rom[9] = 16'h7E00;  // HALT
+                end
+
+                12: begin // CMP + JG (signed) branch demo
+                    // Compare NOS=2, TOS=-1. Signed greater should be true.
+                    u_rom.rom[0]  = 16'h0202;  // PUSH 2
+                    u_rom.rom[1]  = 16'h0200;  // PUSH 0
+                    u_rom.rom[2]  = 16'h2A00;  // NOT -> 0xFFFF
+                    u_rom.rom[3]  = 16'h3000;  // CMP
+                    u_rom.rom[4]  = 16'h5408;  // JG 8
+                    u_rom.rom[5]  = 16'h0200;  // PUSH 0
+                    u_rom.rom[6]  = 16'h6000;  // OUT
+                    u_rom.rom[7]  = 16'h7E00;  // HALT
+                    u_rom.rom[8]  = 16'h0201;  // PUSH 1
+                    u_rom.rom[9]  = 16'h6000;  // OUT
+                    u_rom.rom[10] = 16'h7E00;  // HALT
+                end
+
+                13: begin // CMP + JNG (signed not-greater) branch demo
+                    u_rom.rom[0] = 16'h0203;  // PUSH 3
+                    u_rom.rom[1] = 16'h0203;  // PUSH 3
+                    u_rom.rom[2] = 16'h3000;  // CMP
+                    u_rom.rom[3] = 16'h5607;  // JNG 7
+                    u_rom.rom[4] = 16'h0200;  // PUSH 0
+                    u_rom.rom[5] = 16'h6000;  // OUT
+                    u_rom.rom[6] = 16'h7E00;  // HALT
+                    u_rom.rom[7] = 16'h0201;  // PUSH 1
+                    u_rom.rom[8] = 16'h6000;  // OUT
+                    u_rom.rom[9] = 16'h7E00;  // HALT
+                end
+
+                14: begin // CMP + JS branch demo
+                    // Compare NOS=1, TOS=2 => -1, so sign should be set.
+                    u_rom.rom[0] = 16'h0201;  // PUSH 1
+                    u_rom.rom[1] = 16'h0202;  // PUSH 2
+                    u_rom.rom[2] = 16'h3000;  // CMP
+                    u_rom.rom[3] = 16'h5807;  // JS 7
+                    u_rom.rom[4] = 16'h0200;  // PUSH 0
+                    u_rom.rom[5] = 16'h6000;  // OUT
+                    u_rom.rom[6] = 16'h7E00;  // HALT
+                    u_rom.rom[7] = 16'h0201;  // PUSH 1
+                    u_rom.rom[8] = 16'h6000;  // OUT
+                    u_rom.rom[9] = 16'h7E00;  // HALT
+                end
+
+                15: begin // CMP underflow -> FAULT
+                    u_rom.rom[0] = 16'h0201;  // PUSH 1
+                    u_rom.rom[1] = 16'h3000;  // CMP
+                end
             endcase
         end
     endtask
@@ -369,6 +434,11 @@ module cpu_tb;
         run_and_expect_fault(8,  "POP underflow fault ");
         run_and_expect_fault(9,  "RET underflow fault ");
         run_and_expect_fault(10, "CALL overflow fault ");
+        run_and_check(11, 16'h0001, "CMP+JE branch demo  ");
+        run_and_check(12, 16'h0001, "CMP+JG branch demo  ");
+        run_and_check(13, 16'h0001, "CMP+JNG branch demo ");
+        run_and_check(14, 16'h0001, "CMP+JS branch demo  ");
+        run_and_expect_fault(15, "CMP underflow fault ");
 
         $display("");
         $display("==========================================================");

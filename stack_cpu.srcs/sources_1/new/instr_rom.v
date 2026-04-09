@@ -9,11 +9,12 @@
 // Opcode encoding:
 //   PUSH  = 7'h01    POP   = 7'h02    DUP   = 7'h03    SWAP  = 7'h04
 //   ADD   = 7'h10    SUB   = 7'h11    AND   = 7'h12    OR    = 7'h13
-//   XOR   = 7'h14    NOT   = 7'h15    SHL   = 7'h16    SHR   = 7'h17
+//   XOR   = 7'h14    NOT   = 7'h15    SHL   = 7'h16    SHR   = 7'h17    CMP   = 7'h18
 //   JMP   = 7'h20    JZ    = 7'h21    JNZ   = 7'h22
 //   CALL  = 7'h23    RET   = 7'h24
 //   LOAD  = 7'h25    STORE = 7'h26
-//   JC    = 7'h27    JN    = 7'h28
+//   JC    = 7'h27    JN    = 7'h28    JE    = 7'h29    JG    = 7'h2A
+//   JNG   = 7'h2B    JS    = 7'h2C
 //   OUT   = 7'h30    IN    = 7'h31
 //   HALT  = 7'h3F
 // ============================================================================
@@ -41,12 +42,14 @@ module instr_rom (
     //   ADD       : 16'h2000            SUB      : 16'h2200
     //   AND       : 16'h2400            OR       : 16'h2600
     //   XOR       : 16'h2800            NOT      : 16'h2A00
-    //   SHL       : 16'h2C00            SHR      : 16'h2E00
+    //   SHL       : 16'h2C00            SHR      : 16'h2E00            CMP      : 16'h3000
     //   JMP addr  : 16'h4000 | addr     JZ addr  : 16'h4200 | addr
     //   JNZ addr  : 16'h4400 | addr
     //   CALL addr : 16'h4600 | addr     RET      : 16'h4800
     //   LOAD addr : 16'h4A00 | addr     STORE adr: 16'h4C00 | addr
     //   JC addr   : 16'h4E00 | addr     JN addr  : 16'h5000 | addr
+    //   JE addr   : 16'h5200 | addr     JG addr  : 16'h5400 | addr
+    //   JNG addr  : 16'h5600 | addr     JS addr  : 16'h5800 | addr
     //   OUT       : 16'h6000            IN       : 16'h6200
     //   HALT      : 16'h7E00
     // ========================================================================

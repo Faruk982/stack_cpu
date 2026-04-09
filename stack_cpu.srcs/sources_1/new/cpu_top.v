@@ -10,9 +10,9 @@
 
 module cpu_top (
     input  wire        clk,        // 100 MHz board oscillator (W5)
-    input  wire        rst,        // Active-high reset — center button (U18)
+    input  wire        rst,        // Active-high reset - center button (U18)
     input  wire [15:0] sw,         // 16 slide switches (IN instruction)
-    output wire [15:0] led,        // 16 LEDs — output register display
+    output wire [15:0] led,        // 16 LEDs - output register display
     output wire [6:0]  seg,        // 7-segment cathode signals
     output wire [3:0]  an          // 7-segment anode signals
 );

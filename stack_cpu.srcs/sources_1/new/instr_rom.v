@@ -79,6 +79,26 @@ module instr_rom (
         rom[7] = 16'h6000;   // OUT
         rom[8] = 16'h7E00;   // HALT
 
+        // ===================================================================
+        // Alternative: Program 0 - Recurring Loop counter via subroutine
+        // ===================================================================
+
+        // Main loop
+        rom[0]  = 16'h4604;  // CALL 4
+        rom[1]  = 16'h4000;  // JMP 0
+
+        // Subroutine: countdown_10_to_0 at addr 4
+        rom[4]  = 16'h020A;  // PUSH 10
+        rom[5]  = 16'h0600;  // DUP
+        rom[6]  = 16'h6000;  // OUT
+        rom[7]  = 16'h0400;  // POP
+        rom[8]  = 16'h0201;  // PUSH 1
+        rom[9]  = 16'h2200;  // SUB
+        rom[10] = 16'h4405;  // JNZ 5   (loop back to DUP/OUT path)
+        rom[11] = 16'h6000;  // OUT      (show 0)
+        rom[12] = 16'h0400;  // POP      (clean final 0 from stack)
+        rom[13] = 16'h4800;  // RET
+
         // ==================================================================
         // ALTERNATIVE: Program 1 — Basic Arithmetic (5 + 3 = 8)
         // ==================================================================

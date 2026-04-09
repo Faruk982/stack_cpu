@@ -18,21 +18,21 @@ The CPU demonstrates all core digital system design concepts such as register tr
 
 ## 2. Component Inventory
 
-The CPU is composed of eleven distinct hardware components, each implemented as a separate Verilog module and instantiated in the top-level wrapper.
+The CPU core is composed of eleven distinct hardware components instantiated directly in the top-level wrapper. The full project contains thirteen RTL modules when helper display modules are included.
 
-| **Component**             | **Width** | **Verilog Type** | **Function**                                                                                                |
-| ------------------------- | --------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
-| Program Counter (PC)      | 9-bit     | reg + adder      | Holds address of the current instruction; auto-increments each fetch; loaded by JMP/JZ/JNZ/CALL/RET.       |
-| Instruction ROM           | 16-bit    | LUT ROM          | 512-word read-only memory storing the machine program; addressed by the 9-bit PC.                           |
-| Instruction Register (IR) | 16-bit    | D flip-flops     | Buffers the instruction fetched from ROM; IR\[15:9\] = opcode, IR\[8:0\] = immediate operand.               |
-| Control Unit (FSM)        | ---       | case FSM         | 6-state finite state machine; decodes opcode and generates all control signals each cycle.                  |
-| Stack Pointer (SP)        | 4-bit     | reg + adder      | Tracks the top-of-stack address in the parameterised stack array; increments on PUSH, decrements on POP.    |
-| Stack Memory              | 16-bit    | reg array        | Parameterised LIFO register array (default 16 × 16-bit); the primary data storage element.                  |
-| ALU                       | 16-bit    | combinational    | Accepts TOS (A) and NOS (B); outputs result and four flags (Z, C, N, V); purely combinational logic.       |
-| Output Register           | 16-bit    | D flip-flops     | Latches TOS on OUT instruction; drives 16 LED pins and 7-segment display.                                   |
-| Return Stack              | 9-bit     | reg array        | 16-entry LIFO for CALL/RET subroutine support; stores return addresses.                                     |
-| Data RAM                  | 16-bit    | reg array        | 256 × 16-bit read/write memory for LOAD/STORE instructions.                                                 |
-| Clock Divider             | ---       | counter          | Divides 100 MHz system clock via a clock-enable pulse generator (~2 Hz effective rate).                     |
+| **Component**             | **Width** | **Verilog Type** | **Function**                                                                                                                                  |
+| ------------------------- | --------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Program Counter (PC)      | 9-bit     | reg + adder      | Holds address of the current instruction; auto-increments each fetch; loaded by JMP/JZ/JNZ/CALL/RET.                                          |
+| Instruction ROM           | 16-bit    | LUT ROM          | 512-word read-only memory storing the machine program; addressed by the 9-bit PC.                                                             |
+| Instruction Register (IR) | 16-bit    | D flip-flops     | Buffers the instruction fetched from ROM; IR\[15:9\] = opcode, IR\[8:0\] = immediate operand.                                                 |
+| Control Unit (FSM)        | ---       | case FSM         | 6-state finite state machine; decodes opcode and generates all control signals each cycle.                                                    |
+| Stack Pointer (SP)        | 4-bit     | reg + adder      | Tracks the top-of-stack address in the parameterised stack array; increments on PUSH, decrements on POP.                                      |
+| Stack Memory              | 16-bit    | reg array        | Parameterised LIFO register array (default 16 × 16-bit physical, 15 usable with empty-sentinel convention); the primary data storage element. |
+| ALU                       | 16-bit    | combinational    | Accepts TOS (A) and NOS (B); outputs result and four flags (Z, C, N, V); purely combinational logic.                                          |
+| Output Register           | 16-bit    | D flip-flops     | Latches TOS on OUT instruction; drives 16 LED pins and 7-segment display.                                                                     |
+| Return Stack              | 9-bit     | reg array        | 16 × 9-bit physical LIFO (15 usable with empty-sentinel convention) for CALL/RET subroutine support; stores return addresses.                 |
+| Data RAM                  | 16-bit    | reg array        | 256 × 16-bit read/write memory for LOAD/STORE instructions.                                                                                   |
+| Clock Divider             | ---       | counter          | Divides 100 MHz system clock via a clock-enable pulse generator (~2 Hz effective rate).                                                       |
 
 Table 1: Complete CPU Component Inventory
 
@@ -56,9 +56,9 @@ digraph top_level {
     IR    [label="Instruction Register\n(IR)  16-bit", fillcolor="#D8D0F8"]
     CU    [label="Control Unit\n(6-state FSM)", fillcolor="#C8EDD8", color="#1a6b3a"]
     FLAGS [label="Flags\nZ  C  N  V", fillcolor="#C8EDD8", color="#1a6b3a"]
-    STACK [label="Data Stack\n16 × 16-bit (LIFO)", fillcolor="#FFF0C8", color="#8B6000"]
+    STACK [label="Data Stack\n16 × 16-bit physical\n(15 usable + empty sentinel)", fillcolor="#FFF0C8", color="#8B6000"]
     ALU   [label="ALU\n16-bit  (Z,C,N,V)", fillcolor="#FFD8C8", color="#8B2000"]
-    RSTK  [label="Return Stack\n16 × 9-bit", fillcolor="#D8F0F8", color="#005080"]
+    RSTK  [label="Return Stack\n16 × 9-bit physical\n(15 usable + empty sentinel)", fillcolor="#D8F0F8", color="#005080"]
     DRAM  [label="Data RAM\n256 × 16-bit", fillcolor="#E8D8F8", color="#5500AA"]
     OUTREG[label="Output Register\n16-bit", fillcolor="#F0F0F0", color="#888888"]
     LEDS  [label="LEDs\n(16 pins)", shape=ellipse, fillcolor="#F0F0F0", color="#888888"]
@@ -111,21 +111,21 @@ digraph top_level {
 
 Although the ISA exposes no programmer-visible general-purpose registers, the hardware maintains internal registers.
 
-| **Register** | **Width** | **Type**     | **Function & Connections**                                                                                         |
-| ------------ | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| **Register** | **Width** | **Type**     | **Function & Connections**                                                                                               |
+| ------------ | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | PC           | 9-bit     | D-FF + adder | Receives: reset (→ 0), CU load signal (← JMP/CALL target or RET address), auto-increment (+1). Drives: ROM address port. |
-| IR           | 16-bit    | D-FF         | Receives: ROM data bus on S\_DECODE. Drives: CU opcode input (IR\[15:9\]), immediate (IR\[8:0\]).                   |
-| SP           | 4-bit     | D-FF + adder | Receives: CU inc/dec/reset control. Drives: Stack array address port. Overflow/underflow flags active.             |
-| TOS          | 16-bit    | wire (comb.) | Combinational read of stack\[SP\]. Drives: ALU port A, OUT\_REG input, Data RAM write data.                        |
-| NOS          | 16-bit    | wire (comb.) | Combinational read of stack\[SP-1\]. Drives: ALU port B.                                                           |
-| ALU\_OUT     | 16-bit    | wire         | Combinational output of ALU. Written back to stack during S\_EXECUTE.                                              |
-| Z Flag       | 1-bit     | D-FF         | Updated after every TOS-modifying instruction. Drives: JZ, JNZ.                                                   |
-| C Flag       | 1-bit     | D-FF         | Updated after ALU operations. Carry/borrow from ADD/SUB; bit shifted out from SHL/SHR. Drives: JC.               |
-| N Flag       | 1-bit     | D-FF         | Updated after ALU operations. MSB (sign bit) of result. Drives: JN.                                               |
-| V Flag       | 1-bit     | D-FF         | Updated after ALU operations. Signed arithmetic overflow detection.                                                |
-| OUT\_REG     | 16-bit    | D-FF         | Latched from TOS on OUT. Drives: LED\[15:0\] and 7-segment display.                                               |
-| RSP          | 4-bit     | D-FF + adder | Return stack pointer for CALL/RET. Internal to return\_stack.v.                                                    |
-| State        | 3-bit     | D-FF         | Holds current FSM state (6 states). Internal to control\_unit.v.                                                   |
+| IR           | 16-bit    | D-FF         | Receives: ROM data bus on S_DECODE. Drives: CU opcode input (IR\[15:9\]), immediate (IR\[8:0\]).                         |
+| SP           | 4-bit     | D-FF + adder | Receives: CU inc/dec/reset control. Drives: Stack array address port. Overflow/underflow flags active.                   |
+| TOS          | 16-bit    | wire (comb.) | Combinational read of stack\[SP\]. Drives: ALU port A, OUT_REG input, Data RAM write data.                               |
+| NOS          | 16-bit    | wire (comb.) | Combinational read of stack\[SP-1\]. Drives: ALU port B.                                                                 |
+| ALU_OUT      | 16-bit    | wire         | Combinational output of ALU. Written back to stack during S_EXECUTE.                                                     |
+| Z Flag       | 1-bit     | D-FF         | Updated after every TOS-modifying instruction. Drives: JZ, JNZ.                                                          |
+| C Flag       | 1-bit     | D-FF         | Updated after ALU operations. Carry/borrow from ADD/SUB; bit shifted out from SHL/SHR. Drives: JC.                       |
+| N Flag       | 1-bit     | D-FF         | Updated after ALU operations. MSB (sign bit) of result. Drives: JN.                                                      |
+| V Flag       | 1-bit     | D-FF         | Updated after ALU operations. Signed arithmetic overflow detection.                                                      |
+| OUT_REG      | 16-bit    | D-FF         | Latched from TOS on OUT. Drives: LED\[15:0\] and 7-segment display.                                                      |
+| RSP          | 4-bit     | D-FF + adder | Return stack pointer for CALL/RET. Internal to return_stack.v.                                                           |
+| State        | 3-bit     | D-FF         | Holds current FSM state (6 states). Internal to control_unit.v.                                                          |
 
 Table 2: Internal Register File
 
@@ -147,13 +147,13 @@ digraph registers {
     IR    [label="IR  16-bit\nop[15:9] | imm[8:0]", fillcolor="#D8D0F8", color="#3333AA"]
     CU    [label="Control Unit\n(6-state FSM)", fillcolor="#C8EDD8", color="#1a6b3a"]
     SP    [label="SP\n4-bit", fillcolor="#FFF0C8", color="#8B6000"]
-    SMEM  [label="Stack Memory\n16 x 16-bit reg array", fillcolor="#FFF0C8", color="#8B6000"]
+    SMEM  [label="Stack Memory\n16 x 16-bit physical\n(15 usable)", fillcolor="#FFF0C8", color="#8B6000"]
     TOS   [label="TOS (comb. read)\n16-bit", fillcolor="#FFF0C8", color="#8B6000"]
     NOS   [label="NOS (comb. read)\n16-bit", fillcolor="#FFF0C8", color="#8B6000"]
     ALU   [label="ALU\n16-bit combinational", fillcolor="#FFD8C8", color="#8B2000"]
     FLAGS [label="Flags (registered)\nZ  C  N  V", fillcolor="#C8EDD8", color="#1a6b3a"]
     ALUOUT[label="ALU_OUT\n16-bit", fillcolor="#FFD8C8", color="#8B2000"]
-    RSTK  [label="Return Stack\n16 x 9-bit", fillcolor="#D8F0F8", color="#005080"]
+    RSTK  [label="Return Stack\n16 x 9-bit physical\n(15 usable)", fillcolor="#D8F0F8", color="#005080"]
     DRAM  [label="Data RAM\n256 x 16-bit", fillcolor="#E8D8F8", color="#5500AA"]
     OUTREG[label="OUT_REG\n16-bit → LEDs/7seg", fillcolor="#E8E8E8", color="#888888"]
 
@@ -204,10 +204,10 @@ digraph registers {
 Every instruction is exactly 16 bits wide:
 
 ```md
-15      9 8             0
+15 9 8 0
 ┌────────┬───────────────┐
-│OPCODE  │ IMMEDIATE     │
-│ 7 bits │ 9 bits        │
+│OPCODE │ IMMEDIATE │
+│ 7 bits │ 9 bits │
 └────────┴───────────────┘
 ```
 
@@ -219,9 +219,9 @@ The 7-bit opcode field gives 128 possible instruction encodings; the design uses
 | --------------------------------------------------------------------- | ---------- | --------------------------------------------- | ---------------------------------- |
 | **Stack Operations**                                                  |
 | PUSH imm                                                              | 7\'h01     | SP←SP+1; stack\[SP\]←{7\'b0,IR\[8:0\]}        | Push 9-bit zero-extended immediate |
-| POP                                                                   | 7\'h02     | SP←SP-1                                        | Discard top of stack               |
-| DUP                                                                   | 7\'h03     | SP←SP+1; stack\[SP\]←TOS                       | Duplicate TOS                      |
-| SWAP                                                                  | 7\'h04     | tmp←TOS; TOS←NOS; NOS←tmp                      | Swap TOS and NOS                   |
+| POP                                                                   | 7\'h02     | SP←SP-1                                       | Discard top of stack               |
+| DUP                                                                   | 7\'h03     | SP←SP+1; stack\[SP\]←TOS                      | Duplicate TOS                      |
+| SWAP                                                                  | 7\'h04     | tmp←TOS; TOS←NOS; NOS←tmp                     | Swap TOS and NOS                   |
 | **Arithmetic / Logic (binary --- consumes TOS & NOS, pushes result)** |
 | ADD                                                                   | 7\'h10     | stack\[SP-1\]←NOS+TOS; SP←SP-1; update ZCNV   | 16-bit addition                    |
 | SUB                                                                   | 7\'h11     | stack\[SP-1\]←NOS-TOS; SP←SP-1; update ZCNV   | Subtraction (NOS minus TOS)        |
@@ -229,24 +229,24 @@ The 7-bit opcode field gives 128 possible instruction encodings; the design uses
 | OR                                                                    | 7\'h13     | stack\[SP-1\]←NOS\|TOS; SP←SP-1; update ZCNV  | Bitwise OR                         |
 | XOR                                                                   | 7\'h14     | stack\[SP-1\]←NOS\^TOS; SP←SP-1; update ZCNV  | Bitwise XOR                        |
 | **Arithmetic / Logic (unary --- transform TOS in place)**             |
-| NOT                                                                   | 7\'h15     | stack\[SP\]←\~TOS; update ZCNV                 | Bitwise complement                 |
-| SHL                                                                   | 7\'h16     | stack\[SP\]←TOS\<\<1; C←TOS\[15\]; update ZNV  | Left shift by 1                    |
-| SHR                                                                   | 7\'h17     | stack\[SP\]←TOS\>\>1; C←TOS\[0\]; update ZNV   | Logical right shift by 1           |
+| NOT                                                                   | 7\'h15     | stack\[SP\]←\~TOS; update ZCNV                | Bitwise complement                 |
+| SHL                                                                   | 7\'h16     | stack\[SP\]←TOS\<\<1; C←TOS\[15\]; update ZNV | Left shift by 1                    |
+| SHR                                                                   | 7\'h17     | stack\[SP\]←TOS\>\>1; C←TOS\[0\]; update ZNV  | Logical right shift by 1           |
 | **Control Flow**                                                      |
-| JMP addr                                                              | 7\'h20     | PC←IR\[8:0\]                                   | Unconditional jump                 |
-| JZ addr                                                               | 7\'h21     | if(Z==1) PC←IR\[8:0\]                          | Jump if Zero flag set              |
-| JNZ addr                                                              | 7\'h22     | if(Z==0) PC←IR\[8:0\]                          | Jump if Zero flag clear            |
-| CALL addr                                                             | 7\'h23     | RSP++; ret\[RSP\]←PC; PC←IR\[8:0\]             | Call subroutine                    |
-| RET                                                                   | 7\'h24     | PC←ret\[RSP\]; RSP--                            | Return from subroutine             |
-| JC addr                                                               | 7\'h27     | if(C==1) PC←IR\[8:0\]                          | Jump if Carry flag set             |
-| JN addr                                                               | 7\'h28     | if(N==1) PC←IR\[8:0\]                          | Jump if Negative flag set          |
-| HALT                                                                  | 7\'h3F     | PC holds; FSM→S\_HALT                          | Halt execution                     |
+| JMP addr                                                              | 7\'h20     | PC←IR\[8:0\]                                  | Unconditional jump                 |
+| JZ addr                                                               | 7\'h21     | if(Z==1) PC←IR\[8:0\]                         | Jump if Zero flag set              |
+| JNZ addr                                                              | 7\'h22     | if(Z==0) PC←IR\[8:0\]                         | Jump if Zero flag clear            |
+| CALL addr                                                             | 7\'h23     | RSP++; ret\[RSP\]←PC; PC←IR\[8:0\]            | Call subroutine                    |
+| RET                                                                   | 7\'h24     | PC←ret\[RSP\]; RSP--                          | Return from subroutine             |
+| JC addr                                                               | 7\'h27     | if(C==1) PC←IR\[8:0\]                         | Jump if Carry flag set             |
+| JN addr                                                               | 7\'h28     | if(N==1) PC←IR\[8:0\]                         | Jump if Negative flag set          |
+| HALT                                                                  | 7\'h3F     | PC holds; FSM→S_HALT                          | Halt execution                     |
 | **Memory**                                                            |
-| LOAD addr                                                             | 7\'h25     | SP←SP+1; stack\[SP\]←RAM\[IR\[7:0\]\]          | Push data from RAM onto stack      |
-| STORE addr                                                            | 7\'h26     | RAM\[IR\[7:0\]\]←TOS; SP←SP-1                  | Pop TOS into RAM                   |
+| LOAD addr                                                             | 7\'h25     | SP←SP+1; stack\[SP\]←RAM\[IR\[7:0\]\]         | Push data from RAM onto stack      |
+| STORE addr                                                            | 7\'h26     | RAM\[IR\[7:0\]\]←TOS; SP←SP-1                 | Pop TOS into RAM                   |
 | **I/O**                                                               |
-| OUT                                                                   | 7\'h30     | OUT\_REG←TOS; LED/7seg←OUT\_REG                | Drive LEDs and 7-seg with TOS      |
-| IN                                                                    | 7\'h31     | SP←SP+1; stack\[SP\]←SW\[15:0\]                | Push switch state onto stack       |
+| OUT                                                                   | 7\'h30     | OUT_REG←TOS; LED/7seg←OUT_REG                 | Drive LEDs and 7-seg with TOS      |
+| IN                                                                    | 7\'h31     | SP←SP+1; stack\[SP\]←SW\[15:0\]               | Push switch state onto stack       |
 
 Table 3: Complete Instruction Set Architecture (26 instructions)
 
@@ -262,12 +262,12 @@ Table 3: Complete Instruction Set Architecture (26 instructions)
 
 The ALU produces four condition flags, all updated after every ALU operation (ADD, SUB, AND, OR, XOR, NOT, SHL, SHR):
 
-| **Flag** | **Definition**                           | **Used by**       |
-| -------- | ---------------------------------------- | ----------------- |
-| Z (Zero) | `result == 0`                            | JZ, JNZ           |
-| C (Carry)| Unsigned carry/borrow from ADD/SUB; bit shifted out from SHL/SHR | JC |
-| N (Neg.) | `result[15]` — sign bit of result        | JN                |
-| V (Ovf.) | Signed arithmetic overflow               | (reserved)        |
+| **Flag**  | **Definition**                                                   | **Used by** |
+| --------- | ---------------------------------------------------------------- | ----------- |
+| Z (Zero)  | `result == 0`                                                    | JZ, JNZ     |
+| C (Carry) | Unsigned carry/borrow from ADD/SUB; bit shifted out from SHL/SHR | JC          |
+| N (Neg.)  | `result[15]` — sign bit of result                                | JN          |
+| V (Ovf.)  | Signed arithmetic overflow                                       | (reserved)  |
 
 The Z flag is also updated by non-ALU stack operations (PUSH, POP, DUP, SWAP, IN, LOAD, STORE) to reflect the new TOS value.
 
@@ -336,20 +336,20 @@ digraph rtl_flow {
 
 ### 5.2 RTL Micro-operations per State
 
-#### S\_FETCH (State 1)
+#### S_FETCH (State 1)
 
 ```md
     PC   <= PC + 1;
     ROM captures rom[PC];
 ```
 
-#### S\_DECODE (State 2)
+#### S_DECODE (State 2)
 
 ```md
     IR   <= ROM_output;
 ```
 
-#### S\_EXECUTE (State 3)
+#### S_EXECUTE (State 3)
 
 ```md
     case (opcode)
@@ -413,14 +413,14 @@ digraph fsm {
 
 ### 6.1 State Table
 
-| **State**  | **Encoding** | **Actions (outputs)**                                                 | **Next State**                          |
-| ---------- | ------------ | --------------------------------------------------------------------- | --------------------------------------- |
-| S\_RESET   | 3\'b000      | All registers cleared (PC←0, SP←0, flags←0, OUT\_REG←0)              | → S\_FETCH (unconditional)              |
-| S\_FETCH   | 3\'b001      | pc\_inc=1; ROM captures rom\[PC\] synchronously                      | → S\_DECODE (always)                    |
-| S\_DECODE  | 3\'b010      | ir\_load=1; IR latches ROM output from previous cycle                | → S\_EXECUTE (always)                   |
-| S\_EXECUTE | 3\'b011      | Assert appropriate enable signals per opcode; update flags           | → S\_FETCH (normal) or S\_HALT / S\_FAULT |
-| S\_HALT    | 3\'b100      | halted=1; all other signals de-asserted; PC frozen                   | → S\_HALT (loop) or S\_RESET on rst=1    |
-| S\_FAULT   | 3\'b101      | fault=1; all other signals de-asserted; LED shows 0xF17E             | → S\_FAULT (loop) or S\_RESET on rst=1   |
+| **State** | **Encoding** | **Actions (outputs)**                                      | **Next State**                         |
+| --------- | ------------ | ---------------------------------------------------------- | -------------------------------------- |
+| S_RESET   | 3\'b000      | All registers cleared (PC←0, SP←0, flags←0, OUT_REG←0)     | → S_FETCH (unconditional)              |
+| S_FETCH   | 3\'b001      | pc_inc=1; ROM captures rom\[PC\] synchronously             | → S_DECODE (always)                    |
+| S_DECODE  | 3\'b010      | ir_load=1; IR latches ROM output from previous cycle       | → S_EXECUTE (always)                   |
+| S_EXECUTE | 3\'b011      | Assert appropriate enable signals per opcode; update flags | → S_FETCH (normal) or S_HALT / S_FAULT |
+| S_HALT    | 3\'b100      | halted=1; all other signals de-asserted; PC frozen         | → S_HALT (loop) or S_RESET on rst=1    |
+| S_FAULT   | 3\'b101      | fault=1; all other signals de-asserted; LED shows 0xF17E   | → S_FAULT (loop) or S_RESET on rst=1   |
 
 Table 4: FSM State Table (6 States, 3-bit Encoding)
 
@@ -428,30 +428,30 @@ Table 4: FSM State Table (6 States, 3-bit Encoding)
 
 The Control Unit implements **pre-emptive stack protection**. Before asserting any stack-modifying enable signal, the FSM checks the relevant status flags:
 
-| **Instruction Type**      | **Guard Condition**     | **Action on Violation** |
-| ------------------------- | ----------------------- | ----------------------- |
-| PUSH, DUP, IN, LOAD       | `stack_full == 1`       | Transition to S\_FAULT  |
-| POP, NOT, SHL, SHR, STORE | `stack_empty == 1`      | Transition to S\_FAULT  |
-| ADD, SUB, AND, OR, XOR    | `stack_has_two == 0`    | Transition to S\_FAULT  |
-| SWAP                      | `stack_has_two == 0`    | Transition to S\_FAULT  |
-| CALL                      | `rs_full == 1`          | Transition to S\_FAULT  |
-| RET                       | `rs_empty == 1`         | Transition to S\_FAULT  |
+| **Instruction Type**      | **Guard Condition**  | **Action on Violation** |
+| ------------------------- | -------------------- | ----------------------- |
+| PUSH, DUP, IN, LOAD       | `stack_full == 1`    | Transition to S_FAULT   |
+| POP, NOT, SHL, SHR, STORE | `stack_empty == 1`   | Transition to S_FAULT   |
+| ADD, SUB, AND, OR, XOR    | `stack_has_two == 0` | Transition to S_FAULT   |
+| SWAP                      | `stack_has_two == 0` | Transition to S_FAULT   |
+| CALL                      | `rs_full == 1`       | Transition to S_FAULT   |
+| RET                       | `rs_empty == 1`      | Transition to S_FAULT   |
 
 ### 6.3 Flag Management
 
-| **Instruction**             | **Z Flag Update**                        | **C, N, V Update**           |
-| --------------------------- | ---------------------------------------- | ---------------------------- |
-| PUSH imm                    | `Z <= (immediate == 0)`                  | Unchanged                    |
-| POP                         | `Z <= (NOS == 0)`                        | Unchanged                    |
-| DUP                         | `Z <= (TOS == 0)`                        | Unchanged                    |
-| SWAP                        | `Z <= (NOS == 0)`                        | Unchanged                    |
-| ADD, SUB, AND, OR, XOR      | `Z <= ALU_zero_flag`                     | `C,N,V <= ALU flags`         |
-| NOT, SHL, SHR               | `Z <= ALU_zero_flag`                     | `C,N,V <= ALU flags`         |
-| LOAD                        | `Z <= (ram_data == 0)`                   | Unchanged                    |
-| STORE                       | `Z <= (NOS == 0)`                        | Unchanged                    |
-| IN                          | `Z <= (switch_value == 0)`               | Unchanged                    |
-| JMP, JZ, JNZ, JC, JN, OUT  | Unchanged                                | Unchanged                    |
-| CALL, RET                   | Unchanged                                | Unchanged                    |
+| **Instruction**           | **Z Flag Update**          | **C, N, V Update**   |
+| ------------------------- | -------------------------- | -------------------- |
+| PUSH imm                  | `Z <= (immediate == 0)`    | Unchanged            |
+| POP                       | `Z <= (NOS == 0)`          | Unchanged            |
+| DUP                       | `Z <= (TOS == 0)`          | Unchanged            |
+| SWAP                      | `Z <= (NOS == 0)`          | Unchanged            |
+| ADD, SUB, AND, OR, XOR    | `Z <= ALU_zero_flag`       | `C,N,V <= ALU flags` |
+| NOT, SHL, SHR             | `Z <= ALU_zero_flag`       | `C,N,V <= ALU flags` |
+| LOAD                      | `Z <= (ram_data == 0)`     | Unchanged            |
+| STORE                     | `Z <= (NOS == 0)`          | Unchanged            |
+| IN                        | `Z <= (switch_value == 0)` | Unchanged            |
+| JMP, JZ, JNZ, JC, JN, OUT | Unchanged                  | Unchanged            |
+| CALL, RET                 | Unchanged                  | Unchanged            |
 
 ## 7. Memory & Buffer Register Organisation
 
@@ -483,7 +483,7 @@ digraph memory {
         label="Data Memory — Stack (Parameterised)"
         style=dashed; color="#8B6000"; fontname="Arial"; fontsize=11
         fillcolor="#FFFBF0"
-        SMEM  [label="Stack Array\nreg [15:0] stack [0:DEPTH-1]\n(default: 16 entries)", fillcolor="#FFF0C8", color="#8B6000"]
+        SMEM  [label="Stack Array\nreg [15:0] stack [0:DEPTH-1]\n(default: 16 physical, 15 usable)", fillcolor="#FFF0C8", color="#8B6000"]
         SP    [label="Stack Pointer (SP)\n$clog2(DEPTH)-bit\n(0 = empty)", fillcolor="#FFF0C8", color="#8B6000"]
         TOS   [label="TOS (combinational)\n16-bit  stack[SP]", fillcolor="#FFF0C8", color="#8B6000"]
         NOS   [label="NOS (combinational)\n16-bit  stack[SP-1]", fillcolor="#FFF0C8", color="#8B6000"]
@@ -503,7 +503,7 @@ digraph memory {
         label="Return Stack (CALL/RET)"
         style=dashed; color="#005080"; fontname="Arial"; fontsize=11
         fillcolor="#F0F8FF"
-        RSTK  [label="Return-Address Stack\n16 entries x 9-bit\n(Forth dual-stack)", fillcolor="#D8F0F8", color="#005080"]
+        RSTK  [label="Return-Address Stack\n16 x 9-bit physical\n(15 usable + sentinel)", fillcolor="#D8F0F8", color="#005080"]
         RSP   [label="RSP\n4-bit pointer\n(0 = empty)", fillcolor="#D8F0F8", color="#005080"]
         RSP -> RSTK [label="addr"]
     }
@@ -551,7 +551,7 @@ digraph memory {
 
 ### 7.2 Data Stack (Primary Data Storage)
 
-- Implementation: `reg [15:0] stack_mem [0:DEPTH-1]` --- parameterised register array (default 16 entries).
+- Implementation: `reg [15:0] stack_mem [0:DEPTH-1]` --- parameterised register array (default 16 physical entries; 15 usable with `SP=0` empty sentinel).
 - Access: Indexed by SP. Reads are combinational; writes are synchronous.
 - Stack pointer width is auto-calculated: `SP_WIDTH = $clog2(DEPTH)`.
 - Overflow: `stack_full` when `SP == DEPTH-1`. Underflow: `stack_empty` when `SP == 0`.
@@ -566,11 +566,11 @@ digraph memory {
 
 ### 7.4 Return-Address Stack
 
-- Size: 16 entries × 9-bit addresses.
+- Size: 16 physical entries × 9-bit addresses (15 usable with `RSP=0` empty sentinel).
 - Purpose: Stores return addresses for CALL/RET subroutine support.
 - Architecturally independent of the data stack (Forth dual-stack convention).
 - Push on CALL (saves current PC), pop on RET (restores PC).
-- Overflow/underflow protected: faults to S\_FAULT if exhausted.
+- Overflow/underflow protected: faults to S_FAULT if exhausted.
 
 ### 7.5 Output Buffer Register
 
@@ -588,8 +588,8 @@ digraph memory {
     ├── instr_reg.v         // 16-bit IR with synchronous load
     ├── control_unit.v      // 6-state FSM (26 opcodes, 4 flags)
     ├── alu.v               // Combinational: result + Z,C,N,V flags
-    ├── stack.v             // Parameterised data stack (default 16×16)
-    ├── return_stack.v      // 16-entry return-address stack (CALL/RET)
+    ├── stack.v             // Parameterised data stack (default 16×16 physical, 15 usable)
+    ├── return_stack.v      // Return-address stack (16×9 physical, 15 usable)
     ├── data_ram.v          // 256×16 read/write data memory (LOAD/STORE)
     ├── output_reg.v        // 16-bit latch → LED[15:0]
     └── seg_display_controller.v  // 4-digit hex 7-segment multiplexer

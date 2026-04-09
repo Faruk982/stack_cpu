@@ -9,12 +9,21 @@
 //   SP points to the current top-of-stack entry.
 //   PUSH increments SP then writes; POP reads then decrements SP.
 //
+// Depth hardening:
+//   DEPTH is silently clamped to a minimum of 4 internally via DEPTH_INT.
+//   $clog2 of values < 4 gives pointer widths too narrow for correct operation.
+//   SP_WIDTH is exposed as a parameter so it can be used in the port list,
+//   but users should leave it at its default (derived from clamped DEPTH).
+//
 // Supports: PUSH, POP, DUP, SWAP, ALU writeback, IN, LOAD (from data RAM)
 // ============================================================================
 
 module stack #(
     parameter DEPTH     = 16,
-    parameter SP_WIDTH  = $clog2(DEPTH)
+    // DEPTH_INT: user DEPTH clamped to 4 minimum. Do not override.
+    parameter DEPTH_INT = (DEPTH < 4) ? 4 : DEPTH,
+    // SP_WIDTH: derived from clamped depth. Always >= 2. Do not override.
+    parameter SP_WIDTH  = $clog2(DEPTH_INT)
 )(
     input  wire              clk,
     input  wire              clk_en,
@@ -42,21 +51,21 @@ module stack #(
     output wire              stack_has_two
 );
 
-    reg [15:0] stack_mem [0:DEPTH-1];
+    reg [15:0] stack_mem [0:DEPTH_INT-1];
 
-    assign tos        = (sp == {SP_WIDTH{1'b0}}) ? 16'd0 : stack_mem[sp];
-    assign nos        = (sp <= {{(SP_WIDTH-1){1'b0}}, 1'b1}) ? 16'd0 : stack_mem[sp - 1];
-    assign stack_full  = (sp == DEPTH[SP_WIDTH-1:0] - 1);
-    assign stack_empty = (sp == {SP_WIDTH{1'b0}});
-    assign stack_has_two = (sp >= {{(SP_WIDTH-2){1'b0}}, 2'd2});
+    assign tos           = (sp == 0) ? 16'd0 : stack_mem[sp];
+    assign nos           = (sp <= 1) ? 16'd0 : stack_mem[sp - 1];
+    assign stack_full    = (sp == DEPTH_INT - 1);
+    assign stack_empty   = (sp == 0);
+    assign stack_has_two = (sp >= 2);
 
     wire [SP_WIDTH-1:0] sp_next = sp + 1;
 
     always @(posedge clk) begin
         if (rst) begin : reset_block
             integer i;
-            sp <= {SP_WIDTH{1'b0}};
-            for (i = 0; i < DEPTH; i = i + 1)
+            sp <= 0;
+            for (i = 0; i < DEPTH_INT; i = i + 1)
                 stack_mem[i] <= 16'd0;
         end else if (clk_en) begin
 

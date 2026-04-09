@@ -7,6 +7,8 @@
 //   3. Bit Shift Demo (1 << 4 = 16)   — LED = 0x0010
 //   4. CALL/RET Demo (double 5 = 10)  — LED = 0x000A
 //   5. LOAD/STORE Demo (42+58 = 100)  — LED = 0x0064
+//
+// Pure Verilog-2001 compatible (no SystemVerilog constructs).
 // ============================================================================
 
 `timescale 1ns / 1ps
@@ -139,8 +141,15 @@ module cpu_tb;
     initial clk = 0;
     always #5 clk = ~clk;
 
-    integer test_pass = 0;
-    integer test_fail = 0;
+    integer test_pass;
+    integer test_fail;
+    reg     test_done;        // Flag: program finished (halt or fault)
+    integer cycle_count;      // Timeout counter
+
+    initial begin
+        test_pass = 0;
+        test_fail = 0;
+    end
 
     // ========================================================================
     // load_program: write ROM contents for a given test
@@ -153,7 +162,7 @@ module cpu_tb;
                 u_rom.rom[i] = 16'h7E00;
 
             case (prog_id)
-                1: begin // Countdown 10→0
+                1: begin // Countdown 10->0
                     u_rom.rom[0] = 16'h020A;  // PUSH 10
                     u_rom.rom[1] = 16'h0600;  // DUP
                     u_rom.rom[2] = 16'h6000;  // OUT
@@ -206,6 +215,23 @@ module cpu_tb;
     endtask
 
     // ========================================================================
+    // wait_for_completion: poll until halt/fault or timeout
+    // ========================================================================
+    task wait_for_completion;
+        begin
+            test_done   = 1'b0;
+            cycle_count = 0;
+            while (!test_done && cycle_count < 5000) begin
+                @(posedge clk);
+                if (halted || fault)
+                    test_done = 1'b1;
+                cycle_count = cycle_count + 1;
+            end
+            #100;  // Let settling happen
+        end
+    endtask
+
+    // ========================================================================
     // run_and_check
     // ========================================================================
     task run_and_check;
@@ -221,29 +247,19 @@ module cpu_tb;
             #200;
             rst = 0;
 
-            fork
-                begin
-                    wait (halted == 1'b1 || fault == 1'b1);
-                    #100;
-                end
-                begin
-                    #50000;
-                    $display(" [TIMEOUT] %0s exceeded 50 us.", prog_name);
-                end
-            join_any
-            disable fork;
+            wait_for_completion;
 
             if (fault) begin
-                $display(" [FAIL] %0s — FAULT (stack overflow/underflow)", prog_name);
+                $display(" [FAIL] %0s -- FAULT (stack overflow/underflow)", prog_name);
                 test_fail = test_fail + 1;
             end else if (!halted) begin
-                $display(" [FAIL] %0s — did not halt (timeout)", prog_name);
+                $display(" [FAIL] %0s -- did not halt (timeout)", prog_name);
                 test_fail = test_fail + 1;
             end else if (led === expected_led) begin
-                $display(" [PASS] %0s — LED=0x%04h (expected 0x%04h)", prog_name, led, expected_led);
+                $display(" [PASS] %0s -- LED=0x%04h (expected 0x%04h)", prog_name, led, expected_led);
                 test_pass = test_pass + 1;
             end else begin
-                $display(" [FAIL] %0s — LED=0x%04h (expected 0x%04h)", prog_name, led, expected_led);
+                $display(" [FAIL] %0s -- LED=0x%04h (expected 0x%04h)", prog_name, led, expected_led);
                 test_fail = test_fail + 1;
             end
         end
@@ -261,7 +277,7 @@ module cpu_tb;
     // --- Main Test ---
     initial begin
         $display("==========================================================");
-        $display(" Stack CPU — Multi-Program Integration Testbench");
+        $display(" Stack CPU -- Multi-Program Integration Testbench");
         $display("==========================================================");
 
         rst = 1; sw = 16'h0000; #100;
@@ -285,15 +301,11 @@ module cpu_tb;
         $finish;
     end
 
+    // --- Global timeout ---
     initial begin
         #300000;
-        $display("\n [TIMEOUT] Global 300 us exceeded.");
+        $display(" [TIMEOUT] Global 300 us exceeded.");
         $finish;
-    end
-
-    initial begin
-        $dumpfile("cpu_tb.vcd");
-        $dumpvars(0, cpu_tb);
     end
 
 endmodule

@@ -34,8 +34,13 @@ module alu_tb;
     localparam ALU_SHL = 4'd6;
     localparam ALU_SHR = 4'd7;
 
-    integer pass_count = 0;
-    integer fail_count = 0;
+    integer pass_count;
+    integer fail_count;
+
+    initial begin
+        pass_count = 0;
+        fail_count = 0;
+    end
 
     task check;
         input [15:0] exp_result;

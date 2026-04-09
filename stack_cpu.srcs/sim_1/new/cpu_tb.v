@@ -1,5 +1,5 @@
 // ============================================================================
-// CPU Testbench — Full System Integration Test (Multi-Program)
+// CPU Testbench - Full System Integration Test (Multi-Program)
 //
 // Tests the complete stack-based CPU with 5 programs:
 //   1. Countdown Loop (10 → 0)        — LED = 0x0000

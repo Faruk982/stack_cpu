@@ -1,81 +1,23 @@
 # 16-bit Stack-Based CPU — Artix-7 FPGA Implementation
 
-A custom 16-bit soft-core processor built from scratch in Verilog HDL, implementing a **Stack Machine (zero-operand) architecture**. Designed for the **Basys 3** development board with the Xilinx Artix-7 FPGA (`xc7a35ticpg236-1L`).
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Instruction Set Architecture (ISA)](#instruction-set-architecture-isa)
-- [Module Hierarchy](#module-hierarchy)
-- [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Setup & Build](#setup--build)
-- [Running Simulations](#running-simulations)
-- [Programming the FPGA](#programming-the-fpga)
-- [Example Programs](#example-programs)
-- [Hardware I/O Mapping](#hardware-io-mapping)
+A custom 16-bit soft-core processor built from scratch in Verilog HDL, implementing a **Stack Machine (zero-operand) architecture** with subroutine support, data memory, and extended condition flags. Designed for the **Basys 3** development board with the Xilinx Artix-7 FPGA (`xc7a35ticpg236-1L`).
 
 ---
 
 ## Overview
 
-This project implements a complete 16-bit stack-based CPU that demonstrates core digital system design concepts:
+This project implements a complete 16-bit stack-based CPU demonstrating core digital system design concepts:
 
 - **Register Transfer Logic (RTL)** — data paths between registers, ALU, and memory
-- **Finite State Machine (FSM) Control** — 5-state Moore machine sequencing instruction execution
-- **ALU Design** — combinational 16-bit arithmetic/logic unit with 8 operations
-- **Instruction Set Architecture** — 20-instruction zero-operand ISA
-- **On-chip Memory** — Harvard architecture with separate instruction ROM and data stack
+- **Finite State Machine (FSM) Control** — 6-state Moore machine (RESET, FETCH, DECODE, EXECUTE, HALT, FAULT)
+- **ALU Design** — combinational 16-bit ALU with 8 operations and 4 condition flags (Z, C, N, V)
+- **26-Instruction ISA** — stack ops, arithmetic/logic, control flow (JMP/JZ/JNZ/JC/JN), subroutines (CALL/RET), memory (LOAD/STORE), I/O
+- **Harvard Architecture** — separate 512-word instruction ROM and parameterised data stack
+- **Subroutine Support** — dedicated 16-entry return-address stack (Forth dual-stack convention)
+- **Data Memory** — 256×16-bit RAM for general-purpose storage
+- **Stack Safety** — pre-emptive overflow/underflow detection with fault state
 
-The CPU executes at a configurable slow clock speed (~2 Hz default) for real-time hardware observation via the board's 16 LEDs and 4-digit 7-segment hex display.
-
----
-
-## Architecture
-
-```
-                    ┌────────────────────────────────────-─┐
-                    │            cpu_top.v                 │
-                    │                                      │
-    100 MHz ───────►│ clk_div ──► CPU Clock (~2 Hz)        │
-                    │              │                       │
-    Reset ─────────►│     ┌────────┴────────────┐          │
-                    │     ▼                     │          │
-                    │  ┌──────┐  ┌─────────┐    │          │
-                    │  │  PC  │─►│  ROM    │    │          │
-                    │  │ 8-bit│  │256×16-bit│   │          │
-                    │  └──┬───┘  └────┬────┘    │          │
-                    │     │           ▼         │          │
-                    │     │      ┌────────┐     │          │
-                    │     │      │   IR   │     │          │
-                    │     │      │ 16-bit │     │          │
-                    │     │      └──┬──┬──┘     │          │
-                    │     │   opcode│  │imm     │          │
-                    │     │         ▼  │        │          │
-                    │  ┌──┴──────────┐ │        │          │
-                    │  │ Control Unit│ │        │          │
-                    │  │   (FSM)     │ │        │          │
-                    │  └──┬──────────┘ │        │          │
-                    │     │ ctrl sigs  │        │          │
-                    │     ▼            ▼        │          │
-                    │  ┌──────────┐ ┌──────┐    │          │
-    Switches[15:0]─►│  │  Stack   │►│ ALU  │    │          │
-                    │  │ 16×16-bit│◄│16-bit│    │          │
-                    │  └────┬─────┘ └──────┘    │          │
-                    │       │ TOS               │          │
-                    │       ▼                   │          │
-                    │  ┌──────────┐             │          │
-                    │  │ OUT_REG  │             │          │
-                    │  │  16-bit  │             │          │
-                    │  └──┬───┬──-┘             │          │
-                    │     │   │                 │          │
-                    └─────┼───┼─────────────────┘           
-                          │   │                             
-                    LED[15:0] 7-Segment Display             
-```
+The CPU executes at ~2 Hz for real-time observation via 16 LEDs and a 4-digit 7-segment hex display.
 
 ---
 
@@ -87,25 +29,32 @@ The CPU executes at a configurable slow clock speed (~2 Hz default) for real-tim
 |----------|--------|-----------|-------------|
 | **Stack Operations** |
 | `PUSH imm` | `01` | `SP++; stack[SP] ← imm` | Push 9-bit zero-extended value |
-| `POP` | `02` | `SP--` | Discard top of stack |
-| `DUP` | `03` | `SP++; stack[SP] ← TOS` | Duplicate top of stack |
+| `POP` | `02` | `SP--` | Discard TOS |
+| `DUP` | `03` | `SP++; stack[SP] ← TOS` | Duplicate TOS |
 | `SWAP` | `04` | `TOS ↔ NOS` | Swap top two elements |
 | **Arithmetic / Logic** |
-| `ADD` | `10` | `NOS + TOS → stack[SP-1]; SP--` | Addition |
-| `SUB` | `11` | `NOS - TOS → stack[SP-1]; SP--` | Subtraction |
-| `AND` | `12` | `NOS & TOS → stack[SP-1]; SP--` | Bitwise AND |
-| `OR` | `13` | `NOS \| TOS → stack[SP-1]; SP--` | Bitwise OR |
-| `XOR` | `14` | `NOS ^ TOS → stack[SP-1]; SP--` | Bitwise XOR |
-| `NOT` | `15` | `~TOS → stack[SP]` | Bitwise complement |
-| `SHL` | `16` | `TOS << 1 → stack[SP]` | Left shift by 1 |
-| `SHR` | `17` | `TOS >> 1 → stack[SP]` | Logical right shift by 1 |
+| `ADD` | `10` | `NOS + TOS → stack; SP--; ZCNV` | Addition |
+| `SUB` | `11` | `NOS - TOS → stack; SP--; ZCNV` | Subtraction |
+| `AND` | `12` | `NOS & TOS → stack; SP--; ZCNV` | Bitwise AND |
+| `OR` | `13` | `NOS \| TOS → stack; SP--; ZCNV` | Bitwise OR |
+| `XOR` | `14` | `NOS ^ TOS → stack; SP--; ZCNV` | Bitwise XOR |
+| `NOT` | `15` | `~TOS → stack[SP]; ZCNV` | Bitwise complement |
+| `SHL` | `16` | `TOS << 1; C←MSB; ZCNV` | Left shift by 1 |
+| `SHR` | `17` | `TOS >> 1; C←LSB; ZCNV` | Right shift by 1 |
 | **Control Flow** |
 | `JMP addr` | `20` | `PC ← addr` | Unconditional jump |
-| `JZ addr` | `21` | `if (Z) PC ← addr` | Jump if zero flag set |
-| `JNZ addr` | `22` | `if (!Z) PC ← addr` | Jump if zero flag clear |
+| `JZ addr` | `21` | `if (Z) PC ← addr` | Jump if zero |
+| `JNZ addr` | `22` | `if (!Z) PC ← addr` | Jump if not zero |
+| `CALL addr` | `23` | `ret_push(PC); PC ← addr` | Call subroutine |
+| `RET` | `24` | `PC ← ret_pop()` | Return from subroutine |
+| `JC addr` | `27` | `if (C) PC ← addr` | Jump if carry |
+| `JN addr` | `28` | `if (N) PC ← addr` | Jump if negative |
 | `HALT` | `3F` | Freeze PC | Halt execution |
+| **Memory** |
+| `LOAD addr` | `25` | `SP++; stack[SP] ← RAM[addr]` | Load from data RAM |
+| `STORE addr` | `26` | `RAM[addr] ← TOS; SP--` | Store TOS to data RAM |
 | **I/O** |
-| `OUT` | `30` | `OUT_REG ← TOS` | Drive LEDs with TOS |
+| `OUT` | `30` | `OUT_REG ← TOS` | Drive LEDs/7-seg |
 | `IN` | `31` | `SP++; stack[SP] ← switches` | Push switch state |
 
 ---
@@ -113,17 +62,19 @@ The CPU executes at a configurable slow clock speed (~2 Hz default) for real-tim
 ## Module Hierarchy
 
 ```
-cpu_top.v                  ← Top-level wrapper (board pin mapping)
-├── clk_div.v              ← 100 MHz → ~2 Hz slow clock for demo
-├── pc.v                   ← 8-bit Program Counter
-├── instr_rom.v            ← 256×16-bit Instruction ROM
-├── instr_reg.v            ← 16-bit Instruction Register
-├── control_unit.v         ← FSM: RESET/FETCH/DECODE/EXECUTE/HALT
-├── alu.v                  ← 16-bit Combinational ALU
-├── stack.v                ← 16×16-bit Stack Memory + SP
-├── output_reg.v           ← 16-bit Output Register → LEDs
-├── seg_display_controller.v  ← 4-digit hex 7-segment multiplexer
-│   └── hex_to_7seg.v     ← Hex nibble to 7-segment decoder
+cpu_top.v                       ← Top-level wrapper
+├── clk_div.v                   ← Clock-enable generator (~2 Hz)
+├── pc.v                        ← 9-bit Program Counter
+├── instr_rom.v                 ← 512×16-bit Instruction ROM
+├── instr_reg.v                 ← 16-bit Instruction Register
+├── control_unit.v              ← 6-state FSM (26 opcodes, 4 flags)
+├── alu.v                       ← 16-bit ALU with Z,C,N,V flags
+├── stack.v                     ← Parameterised Data Stack (default 16×16)
+├── return_stack.v              ← 16-entry Return-Address Stack
+├── data_ram.v                  ← 256×16-bit Data RAM
+├── output_reg.v                ← 16-bit Output Register → LEDs
+└── seg_display_controller.v    ← 4-digit 7-segment multiplexer
+    └── hex_to_7seg.v           ← Hex-to-7seg decoder
 ```
 
 ---
@@ -133,149 +84,64 @@ cpu_top.v                  ← Top-level wrapper (board pin mapping)
 ```
 stack_cpu/
 ├── stack_cpu.xpr                          ← Vivado project file
-├── report.md                              ← Design specification document
+├── report.md                              ← Design specification
 ├── README.md                              ← This file
 ├── stack_cpu.srcs/
-│   ├── sources_1/new/                     ← RTL source files
-│   │   ├── cpu_top.v                      ← Top-level wrapper
-│   │   ├── clk_div.v                      ← Clock divider
-│   │   ├── pc.v                           ← Program Counter
-│   │   ├── instr_rom.v                    ← Instruction ROM
-│   │   ├── instr_reg.v                    ← Instruction Register
-│   │   ├── control_unit.v                 ← FSM Control Unit
-│   │   ├── alu.v                          ← Arithmetic Logic Unit
-│   │   ├── stack.v                        ← Stack Memory
-│   │   ├── output_reg.v                   ← Output Register
-│   │   ├── seg_diaplay_controller.v       ← 7-Segment Display Controller
-│   │   └── hex_to_7seg.v                  ← Hex-to-7seg Decoder
+│   ├── sources_1/new/                     ← RTL source files (12 modules)
 │   ├── constrs_1/new/
 │   │   └── main.xdc                       ← Basys 3 pin constraints
-│   └── sim_1/new/                         ← Simulation testbenches
-│       ├── cpu_tb.v                       ← Full CPU integration test
-│       └── alu_tb.v                       ← ALU unit test
+│   └── sim_1/new/                         ← Testbenches
+│       ├── cpu_tb.v                       ← 5-program integration test
+│       └── alu_tb.v                       ← ALU unit test (18 vectors)
 ```
-
----
-
-## Prerequisites
-
-| Requirement | Version |
-|------------|---------|
-| **Xilinx Vivado** | 2023.1 or later (free WebPACK edition is sufficient) |
-| **FPGA Board** | Basys 3 (Artix-7 `xc7a35ticpg236-1L`) |
-| **USB Cable** | Micro-USB for programming and UART |
-
----
-
-## Setup & Build
-
-### 1. Open / Create the Vivado Project
-
-**Option A — Open existing project:**
-1. Launch Vivado
-2. Open Project → navigate to `stack_cpu/stack_cpu.xpr`
-3. **Important:** Change the target FPGA part:
-   - Go to **Settings** → **General** → **Project Device**
-   - Change from `xc7a15ticpg236-1L` to **`xc7a35ticpg236-1L`**
-   - Click **OK**
-
-**Option B — Create a fresh project:**
-1. Launch Vivado → **Create Project**
-2. Project name: `stack_cpu`, location: your preferred directory
-3. Project type: **RTL Project**
-4. Add all `.v` files from `stack_cpu.srcs/sources_1/new/`
-5. Add `main.xdc` from `stack_cpu.srcs/constrs_1/new/`
-6. Add testbench files from `stack_cpu.srcs/sim_1/new/` as simulation sources
-7. Select part: **`xc7a35ticpg236-1L`**
-8. Finish
-
-### 2. Set the Top Module
-
-1. In the **Sources** panel, right-click `cpu_top` → **Set as Top**
-2. This ensures Vivado synthesizes the full CPU hierarchy
-
-### 3. Add Source Files to Vivado (if needed)
-
-If you opened the existing `.xpr` and Vivado doesn't see the new files:
-1. In the **Sources** panel, click **+** → **Add or Create Design Sources**
-2. Navigate to `stack_cpu.srcs/sources_1/new/` and add all `.v` files
-3. Similarly, add simulation sources from `sim_1/new/`
-
-### 4. Synthesize and Implement
-
-1. Click **Run Synthesis** (or press `F11`)
-2. After synthesis completes, click **Run Implementation**
-3. After implementation, click **Generate Bitstream**
-4. Wait for all steps to complete (≈ 2–5 minutes)
 
 ---
 
 ## Running Simulations
 
 ### ALU Unit Test
+Tests all 8 operations with 18 vectors including carry, negative, and overflow flag checks.
 
-1. In the **Sources** panel, set `alu_tb` as the simulation top module:
-   - Expand **Simulation Sources** → right-click `alu_tb` → **Set as Top**
-2. Click **Run Simulation** → **Run Behavioral Simulation**
-3. Check the **Tcl Console** for pass/fail results:
-   ```
-   [PASS] ADD    | A=0x0005 B=0x0003 | Result=0x0008 Z=0
-   [PASS] SUB    | A=0x0003 B=0x0005 | Result=0x0002 Z=0
-   ...
-   Results: 15 PASSED, 0 FAILED out of 15 tests
-   ALL TESTS PASSED
-   ```
-
-### Full CPU Integration Test
-
-1. Set `cpu_tb` as the simulation top module
-2. Run Behavioral Simulation
-3. The testbench prints an execution trace:
-   ```
-   Time(ns)  | RST | PC   | IR     | SP | TOS    | LED    | Halted
-   ----------|-----|------|--------|----|--------|--------|-------
-       1000  |  0  | 0x01 | 0x020A |  1 | 0x000A | 0x0000 |   0
-   ```
-4. Simulation ends when the CPU halts or the 500 µs timeout triggers
-5. For waveform analysis, use the **Waveform Viewer** to inspect internal signals
-
-### Switching Programs
-
-To test a different program, edit `instr_rom.v`:
-1. Comment out the current program's ROM initialization
-2. Uncomment the desired alternative program
-3. Re-run the simulation
-
----
-
-## Programming the FPGA
-
-1. Connect the Basys 3 board via USB
-2. Power on the board (switch in the **ON** position)
-3. In Vivado, after generating the bitstream:
-   - Click **Open Hardware Manager** → **Open Target** → **Auto Connect**
-   - Click **Program Device** → select the `.bit` file → **Program**
-4. The CPU starts executing immediately after programming
-5. Press the **center button** (btnC) to reset and restart execution
+### CPU Integration Test (5 Programs)
+The testbench automatically tests all five example programs:
+```
+[PASS] Countdown 10->0      — LED=0x0000
+[PASS] Arithmetic 5+3=8     — LED=0x0008
+[PASS] Bit Shift 1<<4=16    — LED=0x0010
+[PASS] CALL/RET double(5)   — LED=0x000A
+[PASS] LOAD/STORE 42+58     — LED=0x0064
+RESULTS: 5 PASSED, 0 FAILED out of 5 tests
+```
 
 ---
 
 ## Example Programs
 
-### Program 1: Basic Arithmetic (5 + 3 = 8)
-Pushes 5 and 3, adds them, outputs result on LEDs.
-- **Expected LED output:** `0x0008` (binary: `0000 0000 0000 1000`)
-- **7-segment display:** `0008`
+| # | Name | Description | Expected LED |
+|---|------|-------------|:---:|
+| 1 | Countdown | 10→0 loop with display | `0x0000` |
+| 2 | Arithmetic | 5 + 3 = 8 | `0x0008` |
+| 3 | Bit Shift | 1 << 4 = 16 | `0x0010` |
+| 4 | CALL/RET | Subroutine doubles 5→10 | `0x000A` |
+| 5 | LOAD/STORE | Store 42,58; load and add→100 | `0x0064` |
 
-### Program 2: Countdown Loop (Default)
-Counts from 10 down to 0, displaying each value on the LEDs at ~2 Hz.
-- **Expected behavior:** LEDs show decreasing values: 10 → 9 → 8 → ... → 0
-- **7-segment display:** Shows hex value of current count (`000A` → `0009` → ... → `0000`)
+---
 
-### Program 3: Bit Shift Demo
-Pushes 1 and shifts left 4 times (1 → 2 → 4 → 8 → 16), outputs result.
-- **Expected LED output:** `0x0010` (binary: `0000 0000 0001 0000`)
-- **7-segment display:** `0010`
+## Design Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Clock frequency | 100 MHz |
+| CPU clock | ~2 Hz (configurable) |
+| Instruction width | 16 bits (7b opcode + 9b immediate) |
+| Data width | 16 bits |
+| ROM size | 512 words (9-bit PC) |
+| Stack depth | 16 entries (parameterised) |
+| Return stack | 16 entries × 9-bit |
+| Data RAM | 256 × 16-bit |
+| ISA size | 26 instructions |
+| FSM states | 6 (3-bit encoding) |
+| ALU flags | Z, C, N, V |
 
 ---
 
@@ -283,29 +149,25 @@ Pushes 1 and shifts left 4 times (1 → 2 → 4 → 8 → 16), outputs result.
 
 | Board Element | Port | Function |
 |--------------|------|----------|
-| **W5** (clock) | `clk` | 100 MHz oscillator |
+| **W5** | `clk` | 100 MHz oscillator |
 | **U18** (btnC) | `rst` | Active-high reset |
-| **V17–R2** (SW0–SW15) | `sw[15:0]` | Input for `IN` instruction |
-| **U16–L1** (LD0–LD15) | `led[15:0]` | Output register display |
-| **W7–U7** (CA–CG) | `seg[6:0]` | 7-segment cathodes |
+| **V17–R2** | `sw[15:0]` | Input for IN instruction |
+| **U16–L1** | `led[15:0]` | Output register display |
+| **W7–U7** | `seg[6:0]` | 7-segment cathodes |
 | **U2, U4, V4, W4** | `an[3:0]` | 7-segment anodes |
 
 ---
 
-## Design Parameters
+## Setup & Build
 
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Clock frequency | 100 MHz | Board oscillator |
-| CPU clock | ~2 Hz | Adjustable via `clk_div` DIVISOR parameter |
-| Instruction width | 16 bits | 7-bit opcode + 9-bit immediate |
-| Data width | 16 bits | Stack entries, ALU, output register |
-| ROM size | 256 words | 8-bit address space |
-| Stack depth | 16 entries | 4-bit stack pointer |
-| ISA size | 20 instructions | Using 20 of 128 possible encodings |
+1. Open `stack_cpu.xpr` in Vivado (or create new project with all `.v` files)
+2. Set target device to **`xc7a35ticpg236-1L`**
+3. Set `cpu_top` as top module
+4. Run Synthesis → Implementation → Generate Bitstream
+5. Program the Basys 3 board via Hardware Manager
 
 ---
 
 ## License
 
-This project is developed for educational purposes as part of the CSE4224 Digital System Design course.
+Developed for CSE4224 Digital System Design.

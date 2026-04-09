@@ -8,20 +8,20 @@
 // ============================================================================
 
 module instr_reg (
-    input  wire        clk,         // System clock
-    input  wire        rst,         // Active-high synchronous reset
-    input  wire        ir_load,     // Load enable (asserted in S_FETCH)
-    input  wire [15:0] instr_in,    // Instruction from ROM
-    output reg  [15:0] instr_out    // Latched instruction
+    input  wire        clk,
+    input  wire        clk_en,
+    input  wire        rst,
+    input  wire        ir_load,
+    input  wire [15:0] instr_in,
+    output reg  [15:0] instr_out
 );
 
     always @(posedge clk) begin
         if (rst) begin
             instr_out <= 16'd0;
-        end else if (ir_load) begin
+        end else if (clk_en && ir_load) begin
             instr_out <= instr_in;
         end
-        // else: hold current instruction
     end
 
 endmodule

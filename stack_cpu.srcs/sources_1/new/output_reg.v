@@ -5,20 +5,20 @@
 // ============================================================================
 
 module output_reg (
-    input  wire        clk,       // System clock
-    input  wire        rst,       // Active-high synchronous reset
-    input  wire        out_en,    // Write enable (asserted for OUT instruction)
-    input  wire [15:0] data_in,   // TOS value to latch
-    output reg  [15:0] data_out   // Latched output → LEDs / 7-seg
+    input  wire        clk,
+    input  wire        clk_en,   // FIX #1: clock enable from clk_div
+    input  wire        rst,
+    input  wire        out_en,
+    input  wire [15:0] data_in,
+    output reg  [15:0] data_out
 );
 
     always @(posedge clk) begin
         if (rst) begin
             data_out <= 16'd0;
-        end else if (out_en) begin
+        end else if (clk_en && out_en) begin   // FIX #1
             data_out <= data_in;
         end
-        // else: hold current value
     end
 
 endmodule

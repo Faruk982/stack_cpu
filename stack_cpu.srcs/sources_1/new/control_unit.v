@@ -1,69 +1,90 @@
 // ============================================================================
-// Control Unit — Hardwired FSM
+// Control Unit — Hardwired 6-State FSM
 //
-// 4+1 state Moore machine that sequences instruction execution:
-//   S_RESET  (00) → initialise all registers
-//   S_FETCH  (01) → load IR from ROM[PC], increment PC
-//   S_DECODE (10) → latch IR from ROM output (ROM latency cycle)
-//   S_EXECUTE(11) → assert control signals per opcode
-//   S_HALT        → freeze; wait for reset
-//
-// The alu_op output is driven combinationally so the ALU result and zero_flag
-// are valid in the same cycle that the control unit reads them for z_flag latching.
-// All other control signals are registered (output on the cycle they're needed).
+// States: S_RESET, S_FETCH, S_DECODE, S_EXECUTE, S_HALT, S_FAULT
+// ISA:    26 instructions (20 original + CALL, RET, LOAD, STORE, JC, JN)
+// Flags:  Z (zero), C (carry), N (negative), V (overflow)
 // ============================================================================
 
 module control_unit (
-    input  wire       clk,         // System clock
-    input  wire       rst,         // Active-high synchronous reset
+    input  wire       clk,
+    input  wire       clk_en,
+    input  wire       rst,
 
     // Instruction Register fields
-    input  wire [6:0] opcode,      // IR[15:9]
-    input  wire       zero_flag,   // From ALU (combinational)
+    input  wire [6:0] opcode,
+    input  wire [8:0] immediate,
+
+    // ALU flags (combinational from ALU)
+    input  wire       zero_flag,
+    input  wire       carry_flag,
+    input  wire       neg_flag,
+    input  wire       overflow_flag,
+
+    // Stack status
+    input  wire        stack_full,
+    input  wire        stack_empty,
+    input  wire        stack_has_two,
+    input  wire [15:0] tos,
+    input  wire [15:0] nos,
+    input  wire [15:0] in_value,
+
+    // Return stack status
+    input  wire        rs_full,
+    input  wire        rs_empty,
+
+    // Data RAM read value (for LOAD z_flag)
+    input  wire [15:0] ram_data,
 
     // ---- Control signal outputs ----
-    output reg        ir_load,     // Load Instruction Register
-    output reg        pc_inc,      // Increment Program Counter
-    output reg        pc_load,     // Load PC (JMP / JZ / JNZ)
+    output reg        ir_load,
+    output reg        pc_inc,
+    output reg        pc_load,
 
-    // Stack control
-    output reg        push_en,     // Push immediate
-    output reg        pop_en,      // Pop (discard TOS)
-    output reg        dup_en,      // Duplicate TOS
-    output reg        swap_en,     // Swap TOS <-> NOS
-    output reg        alu_wr_en,   // ALU writeback (binary ops)
-    output reg        alu_unary_en,// ALU writeback (unary ops)
-    output reg        in_en,       // Push switch input
+    output reg        push_en,
+    output reg        pop_en,
+    output reg        dup_en,
+    output reg        swap_en,
+    output reg        alu_wr_en,
+    output reg        alu_unary_en,
+    output reg        in_en,
+    output reg        load_en,       // LOAD: push RAM data to stack
 
-    // ALU control — COMBINATIONAL output
-    output reg [3:0]  alu_op,      // ALU operation selector
+    output reg [3:0]  alu_op,
 
-    // Output register control
-    output reg        out_en,      // Latch TOS to output register
-
-    // Status
-    output reg        halted       // CPU is halted
+    output reg        out_en,
+    output reg        call_en,       // CALL: push PC to return stack
+    output reg        ret_en,        // RET: pop return stack, load PC
+    output reg        ram_wr_en,     // STORE: write TOS to data RAM
+    output reg        halted,
+    output reg        fault
 );
 
     // ---- Opcode constants ----
-    localparam OP_PUSH = 7'h01;
-    localparam OP_POP  = 7'h02;
-    localparam OP_DUP  = 7'h03;
-    localparam OP_SWAP = 7'h04;
-    localparam OP_ADD  = 7'h10;
-    localparam OP_SUB  = 7'h11;
-    localparam OP_AND  = 7'h12;
-    localparam OP_OR   = 7'h13;
-    localparam OP_XOR  = 7'h14;
-    localparam OP_NOT  = 7'h15;
-    localparam OP_SHL  = 7'h16;
-    localparam OP_SHR  = 7'h17;
-    localparam OP_JMP  = 7'h20;
-    localparam OP_JZ   = 7'h21;
-    localparam OP_JNZ  = 7'h22;
-    localparam OP_OUT  = 7'h30;
-    localparam OP_IN   = 7'h31;
-    localparam OP_HALT = 7'h3F;
+    localparam OP_PUSH  = 7'h01;
+    localparam OP_POP   = 7'h02;
+    localparam OP_DUP   = 7'h03;
+    localparam OP_SWAP  = 7'h04;
+    localparam OP_ADD   = 7'h10;
+    localparam OP_SUB   = 7'h11;
+    localparam OP_AND   = 7'h12;
+    localparam OP_OR    = 7'h13;
+    localparam OP_XOR   = 7'h14;
+    localparam OP_NOT   = 7'h15;
+    localparam OP_SHL   = 7'h16;
+    localparam OP_SHR   = 7'h17;
+    localparam OP_JMP   = 7'h20;
+    localparam OP_JZ    = 7'h21;
+    localparam OP_JNZ   = 7'h22;
+    localparam OP_CALL  = 7'h23;
+    localparam OP_RET   = 7'h24;
+    localparam OP_LOAD  = 7'h25;
+    localparam OP_STORE = 7'h26;
+    localparam OP_JC    = 7'h27;
+    localparam OP_JN    = 7'h28;
+    localparam OP_OUT   = 7'h30;
+    localparam OP_IN    = 7'h31;
+    localparam OP_HALT  = 7'h3F;
 
     // ---- ALU operation codes (must match alu.v) ----
     localparam ALU_ADD = 4'd0;
@@ -82,16 +103,18 @@ module control_unit (
     localparam S_DECODE  = 3'd2;
     localparam S_EXECUTE = 3'd3;
     localparam S_HALT    = 3'd4;
+    localparam S_FAULT   = 3'd5;
 
     reg [2:0] state;
 
-    // Latched zero flag — updated after each ALU operation in S_EXECUTE
-    reg z_flag;
+    // Registered flags — updated after every relevant instruction
+    reg z_flag;   // Zero:     updated by all TOS-modifying instructions
+    reg c_flag;   // Carry:    updated by ALU operations only
+    reg n_flag;   // Negative: updated by ALU operations only
+    reg v_flag;   // Overflow: updated by ALU operations only
 
     // ========================================================================
     // Combinational ALU op decode
-    // This ensures the ALU result and zero_flag are valid when we sample
-    // them at the rising clock edge during S_EXECUTE.
     // ========================================================================
     always @(*) begin
         case (opcode)
@@ -108,12 +131,15 @@ module control_unit (
     end
 
     // ========================================================================
-    // Sequential FSM — state transitions and control signal generation
+    // Sequential FSM
     // ========================================================================
     always @(posedge clk) begin
         if (rst) begin
             state        <= S_RESET;
             z_flag       <= 1'b0;
+            c_flag       <= 1'b0;
+            n_flag       <= 1'b0;
+            v_flag       <= 1'b0;
             ir_load      <= 1'b0;
             pc_inc       <= 1'b0;
             pc_load      <= 1'b0;
@@ -124,9 +150,14 @@ module control_unit (
             alu_wr_en    <= 1'b0;
             alu_unary_en <= 1'b0;
             in_en        <= 1'b0;
+            load_en      <= 1'b0;
             out_en       <= 1'b0;
+            call_en      <= 1'b0;
+            ret_en       <= 1'b0;
+            ram_wr_en    <= 1'b0;
             halted       <= 1'b0;
-        end else begin
+            fault        <= 1'b0;
+        end else if (clk_en) begin
             // Default: de-assert all control signals each cycle
             ir_load      <= 1'b0;
             pc_inc       <= 1'b0;
@@ -138,93 +169,193 @@ module control_unit (
             alu_wr_en    <= 1'b0;
             alu_unary_en <= 1'b0;
             in_en        <= 1'b0;
+            load_en      <= 1'b0;
             out_en       <= 1'b0;
+            call_en      <= 1'b0;
+            ret_en       <= 1'b0;
+            ram_wr_en    <= 1'b0;
             halted       <= 1'b0;
+            fault        <= 1'b0;
 
             case (state)
-                // --------------------------------------------------------
-                // S_RESET: Initialise (1 cycle), then move to FETCH
-                // --------------------------------------------------------
+                // ------------------------------------------------------------
                 S_RESET: begin
                     state <= S_FETCH;
                 end
 
-                // --------------------------------------------------------
-                // S_FETCH: Present PC address to ROM; PC <- PC + 1
-                // ROM is synchronous: data appears next cycle (S_DECODE)
-                // --------------------------------------------------------
+                // ------------------------------------------------------------
                 S_FETCH: begin
                     pc_inc <= 1'b1;
                     state  <= S_DECODE;
                 end
 
-                // --------------------------------------------------------
-                // S_DECODE: Latch IR from ROM output (arrived this cycle)
-                // TOS and NOS are available combinationally from stack
-                // --------------------------------------------------------
+                // ------------------------------------------------------------
                 S_DECODE: begin
                     ir_load <= 1'b1;
                     state   <= S_EXECUTE;
                 end
 
-                // --------------------------------------------------------
-                // S_EXECUTE: Opcode decode and control signal assertion
-                // alu_op is already set combinationally, so ALU result
-                // and zero_flag are valid when we latch z_flag here.
-                // --------------------------------------------------------
+                // ------------------------------------------------------------
                 S_EXECUTE: begin
                     case (opcode)
+
                         // -- Stack operations --
                         OP_PUSH: begin
-                            push_en <= 1'b1;
+                            if (stack_full) begin
+                                state <= S_FAULT;
+                            end else begin
+                                push_en <= 1'b1;
+                                z_flag  <= (immediate == 9'd0);
+                                state   <= S_FETCH;
+                            end
                         end
 
                         OP_POP: begin
-                            pop_en <= 1'b1;
+                            if (stack_empty) begin
+                                state <= S_FAULT;
+                            end else begin
+                                pop_en <= 1'b1;
+                                z_flag <= (nos == 16'd0);
+                                state  <= S_FETCH;
+                            end
                         end
 
                         OP_DUP: begin
-                            dup_en <= 1'b1;
+                            if (stack_full) begin
+                                state <= S_FAULT;
+                            end else begin
+                                dup_en <= 1'b1;
+                                z_flag <= (tos == 16'd0);
+                                state  <= S_FETCH;
+                            end
                         end
 
                         OP_SWAP: begin
-                            swap_en <= 1'b1;
+                            if (!stack_has_two) begin
+                                state <= S_FAULT;
+                            end else begin
+                                swap_en <= 1'b1;
+                                z_flag  <= (nos == 16'd0);
+                                state   <= S_FETCH;
+                            end
                         end
 
-                        // -- Binary ALU operations (consume TOS & NOS, push result) --
+                        // -- Binary ALU operations --
                         OP_ADD, OP_SUB, OP_AND, OP_OR, OP_XOR: begin
-                            alu_wr_en <= 1'b1;
-                            z_flag    <= zero_flag;  // zero_flag is valid (alu_op set combinationally)
+                            if (!stack_has_two) begin
+                                state <= S_FAULT;
+                            end else begin
+                                alu_wr_en <= 1'b1;
+                                z_flag    <= zero_flag;
+                                c_flag    <= carry_flag;
+                                n_flag    <= neg_flag;
+                                v_flag    <= overflow_flag;
+                                state     <= S_FETCH;
+                            end
                         end
 
-                        // -- Unary ALU operations (replace TOS) --
+                        // -- Unary ALU operations --
                         OP_NOT, OP_SHL, OP_SHR: begin
-                            alu_unary_en <= 1'b1;
-                            z_flag       <= zero_flag;
+                            if (stack_empty) begin
+                                state <= S_FAULT;
+                            end else begin
+                                alu_unary_en <= 1'b1;
+                                z_flag       <= zero_flag;
+                                c_flag       <= carry_flag;
+                                n_flag       <= neg_flag;
+                                v_flag       <= overflow_flag;
+                                state        <= S_FETCH;
+                            end
                         end
 
-                        // -- Control flow --
+                        // -- Control flow (original) --
                         OP_JMP: begin
                             pc_load <= 1'b1;
+                            state   <= S_FETCH;
                         end
 
                         OP_JZ: begin
                             if (z_flag)
                                 pc_load <= 1'b1;
+                            state <= S_FETCH;
                         end
 
                         OP_JNZ: begin
                             if (!z_flag)
                                 pc_load <= 1'b1;
+                            state <= S_FETCH;
+                        end
+
+                        // -- New branches --
+                        OP_JC: begin
+                            if (c_flag)
+                                pc_load <= 1'b1;
+                            state <= S_FETCH;
+                        end
+
+                        OP_JN: begin
+                            if (n_flag)
+                                pc_load <= 1'b1;
+                            state <= S_FETCH;
+                        end
+
+                        // -- CALL / RET --
+                        OP_CALL: begin
+                            if (rs_full) begin
+                                state <= S_FAULT;
+                            end else begin
+                                call_en <= 1'b1;
+                                pc_load <= 1'b1;
+                                state   <= S_FETCH;
+                            end
+                        end
+
+                        OP_RET: begin
+                            if (rs_empty) begin
+                                state <= S_FAULT;
+                            end else begin
+                                ret_en  <= 1'b1;
+                                pc_load <= 1'b1;
+                                state   <= S_FETCH;
+                            end
+                        end
+
+                        // -- LOAD / STORE --
+                        OP_LOAD: begin
+                            if (stack_full) begin
+                                state <= S_FAULT;
+                            end else begin
+                                load_en <= 1'b1;
+                                z_flag  <= (ram_data == 16'd0);
+                                state   <= S_FETCH;
+                            end
+                        end
+
+                        OP_STORE: begin
+                            if (stack_empty) begin
+                                state <= S_FAULT;
+                            end else begin
+                                pop_en    <= 1'b1;
+                                ram_wr_en <= 1'b1;
+                                z_flag    <= (nos == 16'd0);
+                                state     <= S_FETCH;
+                            end
                         end
 
                         // -- I/O --
                         OP_OUT: begin
                             out_en <= 1'b1;
+                            state  <= S_FETCH;
                         end
 
                         OP_IN: begin
-                            in_en <= 1'b1;
+                            if (stack_full) begin
+                                state <= S_FAULT;
+                            end else begin
+                                in_en  <= 1'b1;
+                                z_flag <= (in_value == 16'd0);
+                                state  <= S_FETCH;
+                            end
                         end
 
                         // -- HALT --
@@ -234,21 +365,21 @@ module control_unit (
                         end
 
                         default: begin
-                            // Unknown opcode — treat as NOP
+                            state <= S_FETCH;
                         end
                     endcase
-
-                    // All non-HALT instructions return to FETCH
-                    if (opcode != OP_HALT)
-                        state <= S_FETCH;
                 end
 
-                // --------------------------------------------------------
-                // S_HALT: Freeze. Only a reset gets us out.
-                // --------------------------------------------------------
+                // ------------------------------------------------------------
                 S_HALT: begin
                     halted <= 1'b1;
                     state  <= S_HALT;
+                end
+
+                // ------------------------------------------------------------
+                S_FAULT: begin
+                    fault <= 1'b1;
+                    state <= S_FAULT;
                 end
 
                 default: begin

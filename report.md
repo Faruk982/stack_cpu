@@ -13,6 +13,24 @@ The implementation demonstrates key digital system design topics including RTL d
 - Hardware mapping is direct because no general-purpose register file decoder is required.
 - The model is educationally strong for control/datapath co-design and stack-safety reasoning.
 
+### 1.2 How the System Works
+
+The system is designed to be a complete CPU implementation with the following features:
+
+- a 16-bit stack CPU with 31 instructions,
+- a 6-state hardwired control FSM,
+- separate instruction/data memory,
+- a dedicated return stack for subroutines,
+- and FPGA-visible outputs through LEDs and 7-segment display.
+
+How it works at runtime:
+
+- the control unit cycles through `FETCH -> DECODE -> EXECUTE`,
+- instructions are read from ROM into IR,
+- stack and ALU operations execute according to opcode,
+- guarded checks prevent invalid stack/return-stack operations,
+- and output instructions update the display path.
+
 ## 2. Component Inventory
 
 The top-level CPU wrapper (`cpu_top.v`) directly instantiates 11 major functional blocks. The project RTL directory (`stack_cpu.srcs/sources_1/new`) contains 24 Verilog modules in total.
@@ -339,20 +357,47 @@ Figure 5: Memory and Buffer Register Organization
 
 ```graphviz
 digraph memory_org {
-    graph [rankdir=TB, label="Figure 5: Memory and Buffer Register Organization", labelloc=b, fontname="Arial", fontsize=12]
-    node [shape=box, style="filled,rounded", fontname="Arial", fontsize=10]
+    graph [rankdir=TB, label="Figure 5: Memory and Buffer Register Organization", labelloc=b, fontname="Arial", fontsize=12, nodesep=0.6, ranksep=0.7]
+    node  [shape=box, style="filled,rounded", fontname="Arial", fontsize=10]
+    edge  [fontname="Arial", fontsize=9]
 
-    ROM  [label="Instruction ROM\n512 x 16", fillcolor="#d8d0f8"]
-    IR   [label="Instruction Register\n16-bit", fillcolor="#d8d0f8"]
-    STK  [label="Data Stack\ndefault 16 physical\n15 usable", fillcolor="#fff0c8"]
-    RAM  [label="Data RAM\n256 x 16", fillcolor="#e8d8f8"]
-    RSTK [label="Return Stack\ndefault 16 physical\n15 usable", fillcolor="#d8f0f8"]
-    OUT  [label="Output Register\n16-bit", fillcolor="#f0f0f0"]
+    CU   [label="Control Unit", fillcolor="#c8edd8", color="#1a6b3a"]
+    PC   [label="Program Counter\n9-bit", fillcolor="#d8d0f8", color="#3333AA"]
+    ROM  [label="Instruction ROM\n512 x 16", fillcolor="#d8d0f8", color="#3333AA"]
+    IR   [label="Instruction Register\n16-bit", fillcolor="#d8d0f8", color="#3333AA"]
 
-    ROM -> IR [label="instr"]
-    RAM -> STK [label="LOAD"]
-    STK -> RAM [label="STORE"]
-    STK -> OUT [label="OUT"]
+    STK  [label="Data Stack\n16 physical entries\n15 usable (SP=0 empty)", fillcolor="#fff0c8", color="#8B6000"]
+    RAM  [label="Data RAM\n256 x 16", fillcolor="#e8d8f8", color="#5500AA"]
+    RSTK [label="Return Stack\n16 physical entries\n15 usable (RSP=0 empty)", fillcolor="#d8f0f8", color="#005080"]
+
+    OUT  [label="Output Register\n16-bit", fillcolor="#f0f0f0", color="#555555"]
+    LED  [label="LED[15:0]", shape=ellipse, fillcolor="#f5f5f5", color="#555555"]
+    SEG  [label="7-seg", shape=ellipse, fillcolor="#f5f5f5", color="#555555"]
+
+    PC  -> ROM  [label="addr[8:0]"]
+    ROM -> IR   [label="instr[15:0]"]
+    IR  -> CU   [label="opcode/imm"]
+
+    CU  -> PC   [label="pc_inc/pc_load", style=dashed, color="#1a6b3a"]
+    CU  -> STK  [label="push/pop/load/aluwr", style=dashed, color="#1a6b3a"]
+    CU  -> RAM  [label="wr_en", style=dashed, color="#1a6b3a"]
+    CU  -> RSTK [label="call/ret", style=dashed, color="#1a6b3a"]
+    CU  -> OUT  [label="out_en", style=dashed, color="#1a6b3a"]
+
+    IR  -> RAM  [label="addr[7:0]"]
+    STK -> RAM  [label="STORE data", color="#5500AA"]
+    RAM -> STK  [label="LOAD data", color="#5500AA"]
+
+    PC   -> RSTK [label="CALL save PC", color="#005080"]
+    RSTK -> PC   [label="RET address", color="#005080"]
+
+    STK -> OUT [label="OUT data"]
+    OUT -> LED
+    OUT -> SEG
+
+    { rank=same; PC; ROM; IR }
+    { rank=same; STK; RAM; RSTK }
+    { rank=same; OUT; LED; SEG }
 }
 ```
 
@@ -414,7 +459,30 @@ Observed default hardware behavior is repeated countdown on LEDs and 7-segment d
 - `alu_tb.v` validates ADD/SUB/AND/OR/XOR/NOT/SHL/SHR/CMP and all flags.
 - `cpu_tb.v` executes 15 programs including branch checks (`JC`, `JN`, `JE`, `JG`, `JNG`, `JS`) and FAULT scenarios.
 
-## 10. Conclusion
+## 10. Features and Limitations
+
+### 10.1 Main Features
+
+- 31-instruction ISA including compare and signed conditional branches.
+- Guarded control policy for stack and return-stack safety.
+- Modular ALU built from reusable arithmetic/logic blocks.
+- On-board observability through LED and 7-segment output.
+- Unit and integration testbenches covering normal and fault behavior.
+
+### 10.2 Current Limitations
+
+- No interrupt or exception service mechanism beyond FAULT halt behavior.
+- No instruction/data hazard management because execution is non-pipelined.
+- Program memory is static (ROM initialization), with no runtime code loading.
+
+## 11. Uniqueness and Contribution
+
+- Combines educational clarity with a complete end-to-end CPU implementation.
+- Uses explicit safety guards in control logic before state-changing actions.
+- Integrates compare-driven signed branching in a stack-machine design.
+- Demonstrates modular gate-level arithmetic construction rather than a single monolithic ALU expression.
+
+## 12. Conclusion
 
 This project delivers a complete and synthesizable 16-bit stack CPU suitable for FPGA-based digital system design demonstration and evaluation. The architecture combines a compact stack-oriented ISA, deterministic FSM control, and a modular ALU implementation built from reusable arithmetic and logic blocks.
 

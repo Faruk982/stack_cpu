@@ -5,7 +5,7 @@
 // DIVISOR cycles of the master clock.  All CPU modules remain on the single
 // 100 MHz clock domain and gate their registers with this enable signal.
 //
-// Default: DIVISOR = 25_000_000 → pulse every 0.25 s → 2 Hz effective rate.
+// Default: DIVISOR = 25_000_000 → pulse every 0.25 s → 4 Hz effective rate.
 // ============================================================================
 
 module clk_div #(

@@ -2,7 +2,8 @@
 // 4-Digit 7-Segment Display Controller (Hexadecimal)
 //
 // Multiplexes across all 4 digits on the Basys 3 display.
-// Refresh rate: 100 MHz / 2^18 ≈ 381 Hz per digit ≈ 95 Hz total
+// Digit-select update rate: 100 MHz / 2^17 ≈ 763 Hz
+// Full 4-digit scan rate:   100 MHz / 2^19 ≈ 191 Hz (per-digit refresh)
 // ============================================================================
 
 module seg_display_controller (

@@ -8,6 +8,7 @@ module adder_subtractor_16 (
 );
 
     wire [15:0] b_eff;
+    wire        adder_cout;
 
     assign b_eff = sub_en ? ~a : a;
 
@@ -16,8 +17,13 @@ module adder_subtractor_16 (
         .y   (b_eff),
         .cin (sub_en),
         .sum (result),
-        .cout(carry_out)
+        .cout(adder_cout)
     );
+
+    // Carry flag convention:
+    // - ADD : C=1 on unsigned carry-out.
+    // - SUB/CMP (b-a): C=1 on borrow, so invert adder carry-out.
+    assign carry_out = sub_en ? ~adder_cout : adder_cout;
 
     assign overflow = sub_en ? ((~b[15] &  a[15] & result[15]) |
                                 ( b[15] & ~a[15] & ~result[15])) :

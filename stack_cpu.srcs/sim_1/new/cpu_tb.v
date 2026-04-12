@@ -65,6 +65,9 @@ module cpu_tb;
     wire [8:0]  ret_addr;
     wire        rs_full, rs_empty;
     wire [15:0] ram_data_out;
+    wire        in_pending_tb;
+
+    assign in_pending_tb = 1'b1;
 
     wire [8:0] pc_in_mux = ret_en ? ret_addr : immediate;
 
@@ -92,7 +95,7 @@ module cpu_tb;
         .neg_flag(alu_neg), .overflow_flag(alu_overflow),
         .stack_full(stack_full), .stack_empty(stack_empty),
         .stack_has_two(stack_has_two),
-        .tos(tos), .nos(nos), .in_value(sw),
+        .tos(tos), .nos(nos), .in_value(sw), .in_pending(in_pending_tb),
         .rs_full(rs_full), .rs_empty(rs_empty),
         .ram_data(ram_data_out),
         .ir_load(ir_load), .pc_inc(pc_inc), .pc_load(pc_load),

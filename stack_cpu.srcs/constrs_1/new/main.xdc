@@ -18,6 +18,9 @@ create_clock -add -name sys_clk_pin -period 10.00 -waveform {0 5} [get_ports clk
 ## ---- Reset Button (Center Button - btnC) ----
 set_property -dict { PACKAGE_PIN U18   IOSTANDARD LVCMOS33 } [get_ports rst]
 
+## ---- Input Confirm Button (Up Button - btnU) ----
+set_property -dict { PACKAGE_PIN T18   IOSTANDARD LVCMOS33 } [get_ports in_confirm_btn]
+
 
 ## ---- Slide Switches (sw[15:0]) ----
 set_property -dict { PACKAGE_PIN V17   IOSTANDARD LVCMOS33 } [get_ports {sw[0]}]

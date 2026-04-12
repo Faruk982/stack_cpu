@@ -11,6 +11,7 @@
 module cpu_top (
     input  wire        clk,        // 100 MHz board oscillator (W5)
     input  wire        rst,        // Active-high reset - center button (U18)
+    input  wire        in_confirm_btn, // Confirm input capture button (btnU)
     input  wire [15:0] sw,         // 16 slide switches (IN instruction)
     output wire [15:0] led,        // 16 LEDs - output register display
     output wire [6:0]  seg,        // 7-segment cathode signals
@@ -69,8 +70,56 @@ module cpu_top (
     wire [15:0] out_data;
     wire [15:0] display_value;
 
+    // Input capture interface for IN instruction
+    localparam integer IN_BTN_DB_BITS = 20; // ~10 ms at 100 MHz
+    reg  [1:0] in_btn_sync;
+    reg  [IN_BTN_DB_BITS-1:0] in_btn_db_cnt;
+    reg        in_btn_db;
+    reg        in_btn_db_d;
+    reg  [15:0] in_latched;
+    reg         in_pending;
+
+    wire in_btn_syncd = in_btn_sync[1];
+    wire in_btn_pulse = in_btn_db & ~in_btn_db_d;
+    wire in_consume   = cpu_clk_en && in_en;
+
     // PC input mux: RET uses return stack address, everything else uses immediate
     wire [8:0] pc_in_mux = ret_en ? ret_addr : immediate;
+
+    // Confirm-button input path:
+    // 1) debounce + edge-detect button,
+    // 2) latch sw into in_latched on confirmed press,
+    // 3) hold in_pending until IN consumes it.
+    always @(posedge clk) begin
+        if (rst) begin
+            in_btn_sync   <= 2'b00;
+            in_btn_db_cnt <= {IN_BTN_DB_BITS{1'b0}};
+            in_btn_db     <= 1'b0;
+            in_btn_db_d   <= 1'b0;
+            in_latched    <= 16'd0;
+            in_pending    <= 1'b0;
+        end else begin
+            in_btn_sync <= {in_btn_sync[0], in_confirm_btn};
+            in_btn_db_d <= in_btn_db;
+
+            if (in_btn_syncd == in_btn_db) begin
+                in_btn_db_cnt <= {IN_BTN_DB_BITS{1'b0}};
+            end else if (&in_btn_db_cnt) begin
+                in_btn_db     <= in_btn_syncd;
+                in_btn_db_cnt <= {IN_BTN_DB_BITS{1'b0}};
+            end else begin
+                in_btn_db_cnt <= in_btn_db_cnt + 1'b1;
+            end
+
+            if (in_consume)
+                in_pending <= 1'b0;
+
+            if (in_btn_pulse) begin
+                in_latched <= sw;
+                in_pending <= 1'b1;
+            end
+        end
+    end
 
     // ========================================================================
     // Module Instantiations
@@ -130,7 +179,8 @@ module cpu_top (
         .stack_has_two(stack_has_two),
         .tos          (tos),
         .nos          (nos),
-        .in_value     (sw),
+        .in_value     (in_latched),
+        .in_pending   (in_pending),
         .rs_full      (rs_full),
         .rs_empty     (rs_empty),
         .ram_data     (ram_data_out),
@@ -181,7 +231,7 @@ module cpu_top (
         .load_en     (load_en),
         .imm_value   ({7'b0, immediate}),
         .alu_result  (alu_result),
-        .sw_value    (sw),
+        .sw_value    (in_latched),
         .ram_data    (ram_data_out),
         .tos         (tos),
         .nos         (nos),

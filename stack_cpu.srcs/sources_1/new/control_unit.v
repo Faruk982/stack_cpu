@@ -28,6 +28,7 @@ module control_unit (
     input  wire [15:0] tos,
     input  wire [15:0] nos,
     input  wire [15:0] in_value,
+    input  wire        in_pending,
 
     // Return stack status
     input  wire        rs_full,
@@ -181,6 +182,8 @@ module control_unit (
 
                     OP_LOAD:  next_state = stack_full    ? S_FAULT : S_FETCH;
                     OP_STORE: next_state = stack_empty   ? S_FAULT : S_FETCH;
+                    OP_IN:    next_state = stack_full    ? S_FAULT :
+                                           (in_pending ? S_FETCH : S_EXECUTE);
 
                     OP_HALT:  next_state = S_HALT;
 
@@ -346,7 +349,7 @@ module control_unit (
                     end
 
                     OP_IN: begin
-                        if (!stack_full)
+                        if (!stack_full && in_pending)
                             in_en = 1'b1;
                     end
 
@@ -447,7 +450,7 @@ module control_unit (
                     end
 
                     OP_IN: begin
-                        if (!stack_full)
+                        if (!stack_full && in_pending)
                             z_flag <= (in_value == 16'd0);
                     end
 

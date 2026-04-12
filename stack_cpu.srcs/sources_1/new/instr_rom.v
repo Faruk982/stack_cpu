@@ -64,8 +64,8 @@ module instr_rom (
         // ===================================================================
 
         // Main loop
-        rom[0]  = 16'h4604;  // CALL 4
-        rom[1]  = 16'h4000;  // JMP 0
+        // rom[0]  = 16'h4604;  // CALL 4
+        // rom[1]  = 16'h4000;  // JMP 0
 
         // Subroutine: countdown_10_to_0 at addr 4
         // rom[4]  = 16'h020A;  // PUSH 10

@@ -29,7 +29,7 @@
 *.bin
 *.mcs
 *.ltx
-*.dcp
+# *.dcp
 *.xsa
 *.hwh
 

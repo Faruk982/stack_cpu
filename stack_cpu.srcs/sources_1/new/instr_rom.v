@@ -59,31 +59,8 @@ module instr_rom (
         for (i = 0; i < 512; i = i + 1)
             rom[i] = 16'h7E00;  // HALT (safe default)
 
-        // ==================================================================
-        // DEFAULT PROGRAM: Countdown Loop (10 → 0)
-        //
-        //   0: PUSH 10  → [10]
-        //   1: DUP      → [count, count]
-        //   2: OUT      → LED = count
-        //   3: POP      → [count]
-        //   4: PUSH 1   → [count, 1]
-        //   5: SUB      → [count-1]   z_flag = (count-1 == 0)
-        //   6: JNZ 1    → branch back if result != 0
-        //   7: OUT      → LED = 0
-        //   8: HALT
-        // ==================================================================
-        rom[0] = 16'h020A;   // PUSH 10
-        rom[1] = 16'h0600;   // DUP
-        rom[2] = 16'h6000;   // OUT
-        rom[3] = 16'h0400;   // POP
-        rom[4] = 16'h0201;   // PUSH 1
-        rom[5] = 16'h2200;   // SUB
-        rom[6] = 16'h4401;   // JNZ 1
-        rom[7] = 16'h6000;   // OUT
-        rom[8] = 16'h7E00;   // HALT
-
         // ===================================================================
-        // Alternative: Program 0 - Recurring Loop counter via subroutine
+        // ACTIVE PROGRAM: Recurring Countdown Loop via Subroutine
         // ===================================================================
 
         // Main loop
@@ -91,16 +68,37 @@ module instr_rom (
         rom[1]  = 16'h4000;  // JMP 0
 
         // Subroutine: countdown_10_to_0 at addr 4
-        rom[4]  = 16'h020A;  // PUSH 10
-        rom[5]  = 16'h0600;  // DUP
-        rom[6]  = 16'h6000;  // OUT
-        rom[7]  = 16'h0400;  // POP
-        rom[8]  = 16'h0201;  // PUSH 1
-        rom[9]  = 16'h2200;  // SUB
-        rom[10] = 16'h4405;  // JNZ 5   (loop back to DUP/OUT path)
-        rom[11] = 16'h6000;  // OUT      (show 0)
-        rom[12] = 16'h0400;  // POP      (clean final 0 from stack)
-        rom[13] = 16'h4800;  // RET
+        // rom[4]  = 16'h020A;  // PUSH 10
+        // rom[5]  = 16'h0600;  // DUP
+        // rom[6]  = 16'h6000;  // OUT
+        // rom[7]  = 16'h0400;  // POP
+        // rom[8]  = 16'h0201;  // PUSH 1
+        // rom[9]  = 16'h2200;  // SUB
+        // rom[10] = 16'h4405;  // JNZ 5   (loop back to DUP/OUT path)
+        // rom[11] = 16'h6000;  // OUT      (show 0)
+        // rom[12] = 16'h0400;  // POP      (clean final 0 from stack)
+        // rom[13] = 16'h4800;  // RET
+
+        // ==================================================================
+        // ALTERNATIVE: Two-Input Add from Slide Switches (IN demo)
+        // ==================================================================
+        // rom[0] = 16'h6200;   // IN
+        // rom[1] = 16'h6200;   // IN
+        // rom[2] = 16'h2000;   // ADD
+        // rom[3] = 16'h6000;   // OUT
+        // rom[4] = 16'h7E00;   // HALT
+
+        // ==================================================================
+        // ALTERNATIVE: Three-Input Add from Slide Switches
+        //   Read three values via IN and display sum = in1 + in2 + in3
+        // ==================================================================
+        rom[0] = 16'h6200;   // IN   (in1)
+        rom[1] = 16'h6200;   // IN   (in2)
+        rom[2] = 16'h2000;   // ADD  -> (in1 + in2)
+        rom[3] = 16'h6200;   // IN   (in3)
+        rom[4] = 16'h2000;   // ADD  -> (in1 + in2 + in3)
+        rom[5] = 16'h6000;   // OUT
+        rom[6] = 16'h7E00;   // HALT
 
         // ==================================================================
         // ALTERNATIVE: Program 1 — Basic Arithmetic (5 + 3 = 8)
